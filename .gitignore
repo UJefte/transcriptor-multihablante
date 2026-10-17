@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+modelos/
+voces/
+transcripciones/
+pruebas/*.wav
+galeria.npz

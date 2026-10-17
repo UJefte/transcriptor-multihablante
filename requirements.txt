@@ -1,0 +1,9 @@
+numpy
+scipy
+soundfile
+sounddevice
+torch
+torchaudio
+speechbrain>=1.0
+silero-vad>=5.1
+faster-whisper>=1.1
