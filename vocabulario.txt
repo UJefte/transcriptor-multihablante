@@ -1,0 +1,6 @@
+# Una palabra o nombre por línea. Whisper tenderá a escribirlos bien.
+# Los nombres de las personas enroladas ya se agregan solos.
+# Las líneas que empiezan con # se ignoran. Ejemplos (quita el # para usarlos):
+# Naomi
+# FES Aragón
+# Whisper
