@@ -1,4 +1,4 @@
-# Transcriptor multihablante en español (versión 2)
+# Transcriptor multihablante en español (versión 2.1)
 
 Escucha una conversación por el micrófono, identifica quién habla y escribe la transcripción casi al momento en un TXT:
 
@@ -60,6 +60,50 @@ python evaluar.py referencias\P01.txt transcripciones\P01_....txt --etiqueta "v2
 
 ### Vocabulario (opcional)
 Crea un archivo `vocabulario.txt` en la carpeta del proyecto, con una palabra o nombre por línea (nombres de compañeros, del profesor, términos de la materia). Whisper tenderá a escribirlos bien.
+
+## Términos en inglés (español técnico de México)
+
+En clase decimos "hice el deploy del backend" y no "hice el despliegue del servidor". Whisper sabe inglés, pero como le indicamos que el audio está en español, a veces escribe esos términos "a la española" ("el bakend", "un comit"). La versión 2.1 hace tres cosas:
+
+| Qué | Archivo | Cómo ayuda |
+| --- | --- | --- |
+| Prompt en espanglish | (dentro del programa) | Whisper imita el estilo del texto previo: con frases técnicas mezcladas espera términos en inglés |
+| Vocabulario técnico | `vocabulario_tecnico.txt` | Lista de términos que Whisper debe escribir en inglés. Pon primero los más importantes: solo caben unas 220 piezas de palabra |
+| Correcciones | `correcciones.txt` | Reemplazos automáticos de errores que se repiten (`comit = commit`) |
+
+Para comparar contra el comportamiento anterior se usa `--sin-espanglish`, que apaga las tres cosas.
+
+### Experimento: ¿cuánto mejora?
+1. Una persona lee en voz alta `pruebas/espanglish_lectura.txt` (unos 3 minutos) con `python transcriptor.py vivo`. Al terminar queda el audio en `transcripciones/`.
+2. Transcribe ese mismo audio con y sin las mejoras:
+   ```
+   python transcriptor.py refinar transcripciones\sesion_XXXX.wav --modelo-final large-v3-turbo --salida transcripciones\esp_con.txt
+   python transcriptor.py refinar transcripciones\sesion_XXXX.wav --modelo-final large-v3-turbo --sin-espanglish --salida transcripciones\esp_sin.txt
+   ```
+3. Mide las dos (en `referencias/espanglish.txt` cambia `[Uriel]` por el nombre enrolado de quien leyó):
+   ```
+   python evaluar.py referencias\espanglish.txt transcripciones\esp_sin.txt --etiqueta "sin espanglish" --terminos pruebas\terminos_en_vocabulario.txt --terminos pruebas\terminos_nuevos.txt
+   python evaluar.py referencias\espanglish.txt transcripciones\esp_con.txt --etiqueta "con espanglish" --terminos pruebas\terminos_en_vocabulario.txt --terminos pruebas\terminos_nuevos.txt
+   ```
+4. Compara el porcentaje de términos bien escritos. `terminos_nuevos.txt` tiene términos que **no** están en el vocabulario técnico: muestra si la mejora sirve también para palabras que el programa no conocía.
+
+Resultados (27 de octubre, una persona, 204 s, `large-v3-turbo` en GPU, `experimento_espanglish.py`; la referencia tiene 33 puntos):
+
+| Configuración de la pasada final | Error general | Términos del vocabulario | Términos nuevos | Puntos |
+| --- | --- | --- | --- | --- |
+| Sin espanglish, todo el audio de una vez (como antes) | 10.3 % y 22.8 % en dos corridas | 83 % | 68 % | 40 y 51 |
+| Espanglish arrastrando el texto anterior | 24.9 % | 80 % | 63 % | — |
+| Espanglish sin arrastre + correcciones | 10.0 % | 89 % | 68 % | 5 |
+| **Espanglish por bloques cortados en pausas (la que quedó)** | **8.7 %** | **89 %** | 68 % | 34 |
+
+- Arrastrar el texto anterior entre ventanas hace que Whisper a veces entre en bucles ("en la tarde, en la tarde..."). Ni siquiera es estable: la configuración de antes dio 10.3 % en una corrida y 22.8 % en otra con el mismo audio.
+- Sin arrastre, Whisper solo ve el prompt en los primeros 30 s y el resto sale sin puntos ni mayúsculas.
+- Por bloques, el audio se corta en tramos de hasta 28 s, cada uno en la pausa más larga disponible, y cada tramo recibe el prompt completo. Además se quitan las repeticiones de 3 o más veces seguidas. Así no hay bucles, la puntuación se conserva en todo el audio y el error es el más bajo.
+- Falta repetir la prueba con más lectores.
+
+Para comparar configuraciones rápido sobre una grabación: `python experimento_espanglish.py transcripciones\sesion_XXXX.wav`
+
+El texto tiene 438 palabras y 60 términos en inglés (89 apariciones). No usa números, porque Whisper podría escribir "500" donde se dijo "quinientos" y contaría como error.
 
 ## Modelos de Whisper: precisión contra velocidad
 

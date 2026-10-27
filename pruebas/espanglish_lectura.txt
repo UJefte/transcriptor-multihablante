@@ -1,0 +1,30 @@
+TEXTO DE PRUEBA: ESPAÑOL CON TÉRMINOS EN INGLÉS (unos 3 minutos)
+Léelo con tu forma normal de hablar y pronuncia los términos en inglés como lo harías en clase.
+No leas los números de las frases y deja una pausa de 1 segundo entre frases.
+
+PARTE 1
+
+Ayer en la mañana tuvimos el daily del proyecto y la verdad todo empezó mal. El deploy del backend falló porque alguien hizo push directo a la branch main sin abrir un pull request. Cuando revisamos los logs vimos que el endpoint del login regresaba un error del servidor y el frontend se quedaba cargando. Mi compañero dijo que era un bug en el query de la base de datos, pero yo pensé que era el cache del server. Abrimos un issue en GitHub, hicimos rollback a la versión anterior y el sistema volvió a funcionar. Después nos pusimos a hacer debug con calma. Resulta que el framework actualizó una dependencia y cambió el formato del token, entonces la API rechazaba todas las peticiones. Lo arreglamos, corrimos los tests, hicimos merge y volvimos a hacer el deploy. En la tarde, en la clase de redes, configuramos un router y un switch en Packet Tracer. El firewall bloqueaba el ping, así que tuvimos que agregar una regla nueva y revisar el gateway. Ya en la noche avanzamos con el proyecto de machine learning: limpiamos el dataset, hicimos el training del modelo en la GPU y medimos el accuracy con un test set aparte. El overfitting estaba muy fuerte, así que agregamos dropout y bajamos el learning rate. Al final subimos todo al repo, actualizamos el README y dejamos el pipeline listo para el sprint de la próxima semana.
+
+PARTE 2
+
+1. Hay que hacer commit y push antes de la noche.
+2. El pull request ya tiene reviews y está listo para el merge.
+3. El frontend consume la API del backend por medio de un endpoint.
+4. Corrí el script en la terminal y me salió un error de sintaxis.
+5. Clona el repo y crea una branch nueva para tu feature.
+6. El servidor está en la nube y el deploy se hace con Docker.
+7. Ese bug solo pasa cuando el usuario hace logout.
+8. Revisa los logs del server, creo que el cache está lleno.
+9. El query tarda mucho porque la tabla no tiene index.
+10. Configuré el router, el switch y la VLAN de administración.
+11. El firewall bloquea el puerto, por eso no responde el ping.
+12. Entrenamos el modelo con un dataset de miles de imágenes.
+13. El accuracy subió, pero ahora hay overfitting.
+14. Bajamos el learning rate y aumentamos el batch size.
+15. Usamos un framework de JavaScript para la interfaz.
+16. Instala las dependencias con pip y activa el environment.
+17. El token expiró y por eso el login regresa error.
+18. Hagan el testing antes de mandar el release.
+19. El backlog del sprint todavía tiene varios tickets abiertos.
+20. Mañana en el daily revisamos el roadmap del proyecto.

@@ -1,0 +1,20 @@
+# Términos del texto de prueba que NO están en vocabulario_tecnico.txt
+main
+rollback
+tests
+Packet Tracer
+gateway
+test set
+dropout
+README
+reviews
+feature
+Docker
+index
+VLAN
+JavaScript
+pip
+environment
+backlog
+tickets
+roadmap

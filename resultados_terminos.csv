@@ -1,0 +1,9 @@
+fecha,etiqueta,sistema,lista,aciertos,total,porcentaje
+2026-10-27 19:21,,transcripciones/esp_sin.txt,pruebas/terminos_en_vocabulario.txt,58,70,0.8286
+2026-10-27 19:21,,transcripciones/esp_sin.txt,pruebas/terminos_nuevos.txt,13,19,0.6842
+2026-10-27 19:21,,transcripciones/esp_con.txt,pruebas/terminos_en_vocabulario.txt,61,70,0.8714
+2026-10-27 19:21,,transcripciones/esp_con.txt,pruebas/terminos_nuevos.txt,14,19,0.7368
+2026-10-27 19:21,,transcripciones/sesion_20261027_131201.txt,pruebas/terminos_en_vocabulario.txt,61,70,0.8714
+2026-10-27 19:21,,transcripciones/sesion_20261027_131201.txt,pruebas/terminos_nuevos.txt,12,19,0.6316
+2026-10-27 19:30,,transcripciones/esp_final.txt,pruebas/terminos_en_vocabulario.txt,62,70,0.8857
+2026-10-27 19:30,,transcripciones/esp_final.txt,pruebas/terminos_nuevos.txt,12,19,0.6316

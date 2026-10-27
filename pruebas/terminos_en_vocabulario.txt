@@ -1,0 +1,42 @@
+# Términos del texto de prueba que SÍ están en vocabulario_tecnico.txt
+daily
+deploy
+backend
+push
+branch
+pull request
+logs
+endpoint
+login
+frontend
+bug
+query
+cache
+server
+issue
+GitHub
+debug
+framework
+token
+API
+merge
+router
+switch
+firewall
+ping
+machine learning
+dataset
+training
+GPU
+accuracy
+overfitting
+learning rate
+repo
+pipeline
+sprint
+commit
+script
+logout
+testing
+release
+batch size

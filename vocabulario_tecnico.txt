@@ -1,0 +1,46 @@
+# Términos técnicos en inglés que Whisper debe escribir en inglés.
+# Una palabra o frase por línea. Whisper toma como máximo unas 220 piezas de palabra
+# (nombres enrolados + vocabulario.txt + esta lista): pon primero los más importantes.
+backend
+frontend
+commit
+push
+pull request
+merge
+branch
+repo
+deploy
+bug
+debug
+API
+endpoint
+query
+framework
+script
+login
+logout
+token
+server
+cache
+logs
+testing
+release
+sprint
+daily
+issue
+GitHub
+router
+switch
+firewall
+ping
+dataset
+machine learning
+training
+accuracy
+overfitting
+learning rate
+batch size
+GPU
+pipeline
+software
+hardware

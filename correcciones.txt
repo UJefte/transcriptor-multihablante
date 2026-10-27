@@ -1,0 +1,15 @@
+# Correcciones automáticas: una por línea, "lo que Whisper escribe mal = como debe quedar".
+# Solo cambia palabras completas y no distingue mayúsculas. Agrega aquí los errores que se repitan.
+bakend = backend
+back end = backend
+front end = frontend
+fronten = frontend
+comit = commit
+comits = commits
+pul request = pull request
+pool request = pull request
+endpoind = endpoint
+end point = endpoint
+data set = dataset
+datasét = dataset
+fire wall = firewall

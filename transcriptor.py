@@ -19,16 +19,18 @@ import datetime
 import glob
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from collections import Counter, deque
 from math import gcd
 
 import numpy as np
 
-VERSION = "2.0"
+VERSION = "2.1"
 SR = 16000                 # frecuencia de muestreo de trabajo
 BLOQUE = 512               # muestras por bloque para el detector de voz (32 ms)
 VENTANA_ID = 2.0           # ventanas del enrolamiento y la calibración (s)
@@ -43,9 +45,21 @@ SOLAPE_MIN_SEG = 1.0       # empate mínimo entre dos voces para marcar posible 
 CARPETA_VOCES = "voces"
 ARCHIVO_GALERIA = "galeria.npz"
 ARCHIVO_VOCABULARIO = "vocabulario.txt"
+ARCHIVO_VOCAB_TECNICO = "vocabulario_tecnico.txt"
+ARCHIVO_CORRECCIONES = "correcciones.txt"
 CARPETA_SALIDA = "transcripciones"
 EXT_AUDIO = (".wav", ".flac", ".ogg", ".opus", ".mp3", ".m4a", ".aac", ".webm")
-PROMPT_BASE = "Conversación en español entre estudiantes universitarios."
+PROMPT_SIMPLE = "Conversación en español entre estudiantes universitarios."
+# Whisper imita el estilo del texto previo: con frases en "espanglish" técnico espera
+# términos en inglés y los escribe en inglés en lugar de adaptarlos al español.
+PROMPT_ESPANGLISH = ("Conversación en español de México entre estudiantes de Ingeniería en Computación, "
+                     "con términos técnicos en inglés: hicimos el deploy del backend, pero el pull request "
+                     "tenía un bug en el endpoint; hay que hacer commit y push a la branch main.")
+ESPANGLISH = {"activo": True}      # se apaga con --sin-espanglish para comparar
+
+
+def prompt_base():
+    return PROMPT_ESPANGLISH if ESPANGLISH["activo"] else PROMPT_SIMPLE
 # Frases que Whisper suele inventar cuando no hay voz clara
 ALUCINACIONES = ("amara.org", "subtítulos realizados", "suscríbete", "gracias por ver el video")
 
@@ -112,18 +126,46 @@ def cargar_audio(ruta):
         raise SystemExit(f"No pude leer '{ruta}'. Conviértelo a WAV o instala ffmpeg.")
 
 
+def _lineas_utiles(ruta):
+    if not os.path.exists(ruta):
+        return []
+    with open(ruta, encoding="utf-8") as f:
+        return [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+
+
 def leer_vocabulario(nombres):
-    """Nombres enrolados + palabras de vocabulario.txt, para que Whisper las escriba bien."""
-    palabras = list(nombres)
-    if os.path.exists(ARCHIVO_VOCABULARIO):
-        with open(ARCHIVO_VOCABULARIO, encoding="utf-8") as f:
-            palabras += [l.strip() for l in f if l.strip() and not l.startswith("#")]
+    """Nombres enrolados + vocabulario.txt + vocabulario_tecnico.txt, para que Whisper los escriba bien.
+    (Whisper usa como máximo unas 220 piezas de palabra: si la lista es muy larga, se recorta el final.)"""
+    palabras = list(nombres) + _lineas_utiles(ARCHIVO_VOCABULARIO)
+    if ESPANGLISH["activo"]:
+        palabras += _lineas_utiles(ARCHIVO_VOCAB_TECNICO)
     vistos, unicas = set(), []
     for p in palabras:
         if p.lower() not in vistos:
             vistos.add(p.lower())
             unicas.append(p)
     return " ".join(unicas) if unicas else None
+
+
+_CORRECCIONES = {}
+
+
+def corregir(texto):
+    """Aplica correcciones.txt (una por línea: 'mal = bien') a palabras completas, sin importar mayúsculas."""
+    if not ESPANGLISH["activo"] or not texto:
+        return texto
+    import re
+    if "reglas" not in _CORRECCIONES:
+        reglas = []
+        for l in _lineas_utiles(ARCHIVO_CORRECCIONES):
+            if "=" in l:
+                mal, bien = (t.strip() for t in l.split("=", 1))
+                if mal:
+                    reglas.append((re.compile(r"(?<!\w)" + re.escape(mal) + r"(?!\w)", re.IGNORECASE), bien))
+        _CORRECCIONES["reglas"] = reglas
+    for patron, bien in _CORRECCIONES["reglas"]:
+        texto = patron.sub(bien, texto)
+    return texto
 
 
 class Decimador:
@@ -606,6 +648,101 @@ def filtrar_segmentos(segmentos):
     return palabras
 
 
+def _norm(w):
+    w = unicodedata.normalize("NFD", w.lower())
+    return re.sub(r"[^\w]", "", "".join(c for c in w if unicodedata.category(c) != "Mn"))
+
+
+def quitar_repeticiones(palabras, max_n=6, veces=3):
+    """Red de seguridad contra bucles de Whisper: si un grupo de 1 a 6 palabras se repite 3 veces
+    o más seguidas ("en la tarde, en la tarde, en la tarde..."), deja solo la primera. Dos
+    repeticiones ("hola, hola") se respetan porque la gente sí habla así."""
+    norm = [_norm(w) for _, _, w in palabras]
+    salida, i = [], 0
+    while i < len(palabras):
+        salto = 0
+        for n in range(1, max_n + 1):
+            grupo = norm[i:i + n]
+            if len(grupo) < n or not all(grupo):
+                break
+            k = 1
+            while norm[i + k * n:i + (k + 1) * n] == grupo:
+                k += 1
+            if k >= veces:
+                salto = n
+                break
+        if salto:
+            salida += palabras[i:i + salto]
+            i += k * salto
+        else:
+            salida.append(palabras[i])
+            i += 1
+    return salida
+
+
+def bloques_de_voz(x, max_s=28.0, min_s=12.0):
+    """Corta el audio en bloques de hasta max_s segundos (Whisper ve 30 s a la vez). Cada corte va
+    en la pausa MÁS LARGA disponible después de min_s, para no partir oraciones; si alguien habla
+    sin pausas más de max_s, se corta en el instante más callado. Devuelve [(inicio, fin)] en muestras."""
+    import torch
+    from silero_vad import load_silero_vad, get_speech_timestamps
+    regiones = get_speech_timestamps(torch.from_numpy(np.ascontiguousarray(x, dtype=np.float32)), load_silero_vad(),
+                                     sampling_rate=SR, min_silence_duration_ms=150, speech_pad_ms=100)
+    maximo, minimo, cuadro = int(max_s * SR), int(min_s * SR), int(0.1 * SR)
+    piezas = []
+    for r in regiones:
+        a, b = r["start"], r["end"]
+        while b - a > maximo:
+            zona = x[a + maximo - 6 * SR: a + maximo]
+            n = len(zona) // cuadro
+            energia = (zona[:n * cuadro].reshape(n, cuadro) ** 2).mean(axis=1)
+            corte = a + maximo - 6 * SR + int(np.argmin(energia)) * cuadro + cuadro // 2
+            piezas.append((a, corte))
+            a = corte
+        piezas.append((a, b))
+    bloques, i = [], 0
+    while i < len(piezas):
+        ini, j, candidatos = piezas[i][0], i, []
+        while j < len(piezas) and piezas[j][1] - ini <= maximo:
+            hueco = piezas[j + 1][0] - piezas[j][1] if j + 1 < len(piezas) else float("inf")
+            candidatos.append((j, hueco))
+            j += 1
+        if j == len(piezas):
+            fin = len(piezas) - 1                                   # lo que queda cabe completo
+        else:
+            largos = [c for c in candidatos if piezas[c[0]][1] - ini >= minimo] or candidatos
+            fin = max(largos, key=lambda c: c[1])[0]                # la pausa más larga
+        bloques.append((ini, piezas[fin][1]))
+        i = fin + 1
+    return bloques
+
+
+def transcribir_por_bloques(asr, x, beam, vocabulario=None, prompt=None, arrastre=False):
+    """Pasada final por bloques: cada bloque recibe el prompt completo (y, con arrastre=True, el
+    final del bloque anterior). Así Whisper mantiene puntos, mayúsculas y términos en inglés en
+    TODO el audio, no solo en los primeros 30 s, sin el arrastre interno que causaba bucles."""
+    prompt = prompt or prompt_base()
+    palabras, cola, fin_anterior = [], "", None
+    for a, b in bloques_de_voz(x):
+        segmentos, _ = asr.transcribe(x[a:b], language="es", beam_size=beam, word_timestamps=True,
+                                      vad_filter=True, condition_on_previous_text=False,
+                                      initial_prompt=prompt + (" " + cola if cola else ""), hotwords=vocabulario)
+        nuevas = [(a / SR + i, a / SR + f, w) for i, f, w in filtrar_segmentos(segmentos)]
+        if fin_anterior == a and palabras and nuevas:
+            # corte forzado a media voz: la palabra del borde puede salir en los dos bloques
+            for m in (3, 2, 1):
+                if len(palabras) >= m and len(nuevas) >= m and \
+                        [_norm(w) for _, _, w in palabras[-m:]] == [_norm(w) for _, _, w in nuevas[:m]]:
+                    nuevas = nuevas[m:]
+                    break
+        palabras += nuevas
+        fin_anterior = b
+        texto = "".join(w for _, _, w in nuevas).strip()
+        if arrastre and texto:
+            cola = texto[-200:]
+    return quitar_repeticiones(palabras)
+
+
 class Procesador:
     def __init__(self, ident, galeria, asr, umbral, margen, beam, contexto, ruta_txt, detalle=False,
                  vocabulario=None, agrupar_desconocidos=True):
@@ -618,7 +755,7 @@ class Procesador:
         self.f = open(ruta_txt, "a", encoding="utf-8") if ruta_txt else None
 
     def transcribir(self, audio):
-        prompt = PROMPT_BASE
+        prompt = prompt_base()
         if self.contexto and self.ultimo_texto:
             prompt += " " + self.ultimo_texto[-200:]
         audio = np.concatenate([nivelar_volumen(audio), np.zeros(int(0.4 * SR), np.float32)])
@@ -634,6 +771,7 @@ class Procesador:
         lineas = []
         grupos = agrupar(palabras, vs)
         for g in grupos:
+            g["texto"] = corregir(g["texto"])
             marca = " [posible solapamiento con otro hablante]" if g["solape"] else ""
             linea = f"[{g['nombre']}] ({hhmmss(g['inicio'])} - {hhmmss(g['fin'])}): {g['texto']}{marca}"
             if self.f:
@@ -675,11 +813,10 @@ def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabular
             print(f"\r  Separando voces... {100 * (i + 1) // max(len(regiones), 1)}%", end="", flush=True)
     if progreso:
         print("\r  Separando voces... listo.          ")
-        print("  Transcribiendo con contexto completo...")
-    segmentos, _ = asr.transcribe(nivelado, language="es", beam_size=beam,
-                                  word_timestamps=True, vad_filter=True, initial_prompt=PROMPT_BASE,
-                                  hotwords=vocabulario)
-    palabras = filtrar_segmentos(segmentos)
+        print("  Transcribiendo por bloques...")
+    # Bloques de hasta 28 s cortados en pausas, cada uno con el prompt completo y sin arrastrar el texto
+    # anterior. En las pruebas: error 8.7 % (antes 10-23 %), sin bucles y con la puntuación completa.
+    palabras = transcribir_por_bloques(asr, nivelado, beam, vocabulario)
     if not tramos or not palabras:
         return [], []
     grupos = agrupar(palabras, tramos)
@@ -695,7 +832,7 @@ def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabular
     lineas = []
     for g in unidos:
         marca = " [posible solapamiento con otro hablante]" if g["solape"] else ""
-        lineas.append(f"[{g['nombre']}] ({hhmmss(g['inicio'])} - {hhmmss(g['fin'])}): {g['texto']}{marca}")
+        lineas.append(f"[{g['nombre']}] ({hhmmss(g['inicio'])} - {hhmmss(g['fin'])}): {corregir(g['texto'])}{marca}")
     etiquetadas = [((a + b) / 2, g["nombre"], w, a, b) for g in grupos for a, b, w in g["palabras"]]
     return lineas, etiquetadas
 
@@ -789,7 +926,7 @@ def ejecutar_refinado(ruta_wav, args, galeria=None, ident=None):
     print(f"Pasada final sobre {len(x) / SR:.0f} s de audio con Whisper '{modelo_final}'...")
     lineas, _ = refinar_audio(x, galeria, ident, asr, umbral, args.margen, beam=5,
                               vocabulario=leer_vocabulario(galeria.nombres))
-    salida = os.path.splitext(ruta_wav)[0] + "_final.txt"
+    salida = getattr(args, "salida", None) or os.path.splitext(ruta_wav)[0] + "_final.txt"
     with open(salida, "w", encoding="utf-8") as f:
         f.write("\n".join(lineas) + ("\n" if lineas else ""))
     print("\n".join(lineas))
@@ -954,6 +1091,8 @@ def main():
     comun.add_argument("--silencio-ms", type=int, default=500, help="silencio que cierra una frase (ms)")
     comun.add_argument("--vad", type=float, default=0.5, help="sensibilidad del detector de voz (0-1)")
     comun.add_argument("--sin-contexto", action="store_true", help="no pasar el texto anterior a Whisper")
+    comun.add_argument("--sin-espanglish", action="store_true",
+                       help="desactiva el prompt técnico, vocabulario_tecnico.txt y correcciones.txt (para comparar)")
     comun.add_argument("--detalle", action="store_true", help="muestra similitud y latencia por frase")
 
     p = argparse.ArgumentParser(description=f"Transcriptor multihablante en español v{VERSION}")
@@ -971,12 +1110,15 @@ def main():
     v.set_defaults(fn=cmd_vivo)
     r = sub.add_parser("refinar", parents=[comun], help="transcripción final de alta precisión de un audio")
     r.add_argument("ruta")
+    r.add_argument("--salida", default=None, help="ruta del TXT final (por defecto <audio>_final.txt)")
     r.set_defaults(fn=cmd_refinar)
     a = sub.add_parser("archivo", parents=[comun], help="procesa un audio grabado con el flujo en vivo")
     a.add_argument("ruta")
     a.add_argument("--salida", default=None, help="ruta del TXT de salida")
     a.set_defaults(fn=cmd_archivo)
     args = p.parse_args()
+    if getattr(args, "sin_espanglish", False):
+        ESPANGLISH["activo"] = False
     args.fn(args)
 
 

@@ -13,7 +13,9 @@ Formato de ambos archivos (una línea por intervención; los tiempos son opciona
 Métricas:
   WER          porcentaje de palabras mal transcritas (sustituidas, borradas o insertadas). Menor es mejor.
   Atribución   de las palabras que sí se transcribieron bien, porcentaje con el hablante correcto. Mayor es mejor.
-Cada evaluación se agrega a resultados.csv para armar la tabla del reporte.
+  Términos     (con --terminos lista.txt) porcentaje de términos de la lista, como "pull request" o
+               "backend", que aparecen bien escritos. Se puede repetir para varias listas.
+Cada evaluación se agrega a resultados.csv (y resultados_terminos.csv) para armar la tabla del reporte.
 """
 import argparse
 import csv
@@ -73,6 +75,30 @@ def alinear(ref, hip):
     return S, B, I, aciertos
 
 
+def contar(palabras, termino):
+    n = len(termino)
+    return sum(1 for i in range(len(palabras) - n + 1) if palabras[i:i + n] == termino)
+
+
+def evaluar_terminos(ruta_lista, ref_palabras, hip_palabras):
+    with open(ruta_lista, encoding="utf-8") as f:
+        terminos = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+    aciertos = total = 0
+    fallos = []
+    for t in terminos:
+        tn = normalizar(t)
+        if not tn:
+            continue
+        en_ref, en_hip = contar(ref_palabras, tn), contar(hip_palabras, tn)
+        if en_ref == 0:
+            continue
+        aciertos += min(en_ref, en_hip)
+        total += en_ref
+        if en_hip < en_ref:
+            fallos.append(f"{t} ({en_hip}/{en_ref})")
+    return aciertos, total, fallos
+
+
 def main():
     try:
         sys.stdout.reconfigure(errors="replace")
@@ -83,6 +109,7 @@ def main():
     p.add_argument("sistema")
     p.add_argument("--etiqueta", default="", help="qué configuración se probó (modelo, umbral, etc.)")
     p.add_argument("--csv", default="resultados.csv")
+    p.add_argument("--terminos", action="append", default=[], help="lista de términos a revisar (repetible)")
     a = p.parse_args()
 
     ref, hip = leer(a.referencia), leer(a.sistema)
@@ -115,6 +142,23 @@ def main():
         w.writerow([datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), a.etiqueta, a.referencia, a.sistema,
                     len(ref), f"{wer:.4f}", f"{atrib:.4f}", S, B, I])
     print(f"\nResultado agregado a {a.csv}")
+
+    if a.terminos:
+        ref_p, hip_p = [p for p, _ in ref], [p for p, _ in hip]
+        nuevo_t = not os.path.exists("resultados_terminos.csv")
+        with open("resultados_terminos.csv", "a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if nuevo_t:
+                w.writerow(["fecha", "etiqueta", "sistema", "lista", "aciertos", "total", "porcentaje"])
+            for lista in a.terminos:
+                ok, tot, fallos = evaluar_terminos(lista, ref_p, hip_p)
+                pct = ok / tot if tot else 0.0
+                print(f"\nTérminos de {lista}: {ok} de {tot} bien escritos ({pct:.1%})")
+                if fallos:
+                    print("  Fallaron: " + ", ".join(fallos))
+                w.writerow([datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), a.etiqueta, a.sistema, lista,
+                            ok, tot, f"{pct:.4f}"])
+        print("Términos agregados a resultados_terminos.csv")
 
 
 if __name__ == "__main__":
