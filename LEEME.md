@@ -1,4 +1,4 @@
-# Transcriptor multihablante en español (versión 2.1)
+# Transcriptor multihablante en español (versión 2.2)
 
 Escucha una conversación por el micrófono, identifica quién habla y escribe la transcripción casi al momento en un TXT:
 
@@ -9,6 +9,27 @@ Escucha una conversación por el micrófono, identifica quién habla y escribe l
 ```
 
 Al terminar puede generar una **transcripción final** más precisa (`_final.txt`), procesando toda la grabación con su contexto completo y, si quieres, con un modelo más grande.
+
+## Qué cambió en la versión 2.2 (2 de noviembre)
+
+Problema: con una sola persona hablando, partes de sus frases salían como «Desconocido».
+
+- **Umbral por persona.** Antes había un solo umbral para todos (0.58), y lo subían mamá y Naomi porque sus voces se parecen entre sí (0.59). A Uriel, cuya voz es muy distinta a las demás (0.22), se le exigía lo mismo. Ahora cada persona tiene su propio umbral, calibrado con ventanas de 1 s (las mismas que usa la separación). Al abrir la app, una galería vieja se recalcula sola; en consola: `python transcriptor.py galeria`.
+- **Las ventanas sin voz ya no cuentan.** Los tramos de silencio al final de cada frase no se parecen a nadie; ahora el detector de voz los descarta y ahí se queda quien venía hablando.
+- **Frases en vivo de hasta 8 s, con pausa de 0.6 s para cerrarlas** (antes 6 s y 0.5 s): Whisper ve frases más completas.
+- La app guarda sola la versión final en `transcripciones/<sesion>_final.txt`.
+
+Medido con las grabaciones del 17, 20, 27 y 31 de octubre:
+
+| | Antes | Ahora |
+| --- | --- | --- |
+| Tiempo atribuido a Uriel en 4 grabaciones donde solo habla él | 43 % a 91 % | 100 % en las 4 |
+| Conversaciones armadas con audio que no se usó para la huella, 3 personas enroladas | 86.0 % | 89.9 % |
+| Igual, con mamá sin enrolar (debe salir «Desconocido») | 69.0 % | 68.1 % |
+| Igual, solo Uriel y Naomi | 98.2 % | 98.5 % |
+| Error de palabras en vivo, lectura del 27 de octubre (Whisper `small`, CPU) | 16.7 % | 14.6 % |
+
+Lo que sigue limitando: distinguir a una persona no enrolada de otra enrolada con voz parecida (mamá contra Naomi, 68 %), y las palabras sueltas o cantadas, que no tienen contexto para Whisper. La versión final siempre es más precisa que la de en vivo.
 
 ## Qué cambió en la versión 2
 
@@ -44,6 +65,32 @@ py -3.11 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+## Aplicación de escritorio (`app.py`)
+
+Con el entorno activado:
+
+```
+python app.py
+```
+
+La primera vez tarda en abrir porque carga los modelos; el punto junto a «Modelos» se pone verde cuando están listos.
+
+- **Conversación:** «Grabar» empieza a escuchar y la transcripción aparece en la ventana, cada persona con su color. Al detener se hace la pasada final (más precisa) y puedes cambiar entre «En vivo» y «Final». «Abrir audio…» transcribe un audio ya grabado; «Guardar TXT» exporta lo que está en pantalla. El audio de cada sesión se guarda en `transcripciones/`.
+- **Personas:** quién está enrolado, «Volver a enrolar», «Borrar» y «Probar reconocimiento» (hablas 5 s y te dice a quién se parece tu voz, con la similitud de cada persona contra el umbral).
+- **Enrolar voz:** enrolamiento guiado de 9 tomas con distintos tonos: lectura normal, preguntas, emoción, voz baja, voz fuerte, rápido, lento con números, términos técnicos y plática libre (unos 80 s de voz, el doble que antes).
+
+Por qué el enrolamiento nuevo es más preciso:
+
+1. La huella cubre cómo suena la persona en distintos tonos, no solo leyendo en tono plano, que es lo que pasa en una conversación real.
+2. Cada toma se revisa al momento (volumen, saturación, segundos de voz, ruido de fondo) y se repite si sale mal.
+3. Las tomas se comparan entre sí: si una no se parece a las demás (otra persona habló, hubo ruido), se marca y no se usa.
+4. La voz nueva se compara con las ya enroladas: avisa si es casi igual a alguien (la misma persona con otro nombre) o si dos personas podrían confundirse.
+5. La huella final descarta el 10 % de ventanas que menos se parecen al resto (toses, golpes, voces de fondo). Esto aplica también a `python transcriptor.py galeria`.
+
+Para trabajar en la interfaz sin modelos ni micrófono (en cualquier PC): `python app.py --simulado`. La interfaz solo habla con `motor.py`; el motor real y el simulado tienen las mismas funciones.
+
+Los comandos de consola de abajo siguen funcionando igual.
 
 ## Uso
 

@@ -30,7 +30,7 @@ from math import gcd
 
 import numpy as np
 
-VERSION = "2.1"
+VERSION = "2.2"
 SR = 16000                 # frecuencia de muestreo de trabajo
 BLOQUE = 512               # muestras por bloque para el detector de voz (32 ms)
 VENTANA_ID = 2.0           # ventanas del enrolamiento y la calibración (s)
@@ -38,7 +38,9 @@ VENTANA_SEP = 1.0          # ventanas solapadas para separar hablantes (s)
 PASO_SEP = 0.25            # cada cuánto se evalúa quién habla (s)
 PASO_RAPIDO = 0.5          # paso cuando en vivo se acumulan frases en cola (5 veces menos cálculo)
 PENAL_CAMBIO = 0.2         # costo de cambiar de hablante en el Viterbi
-AJUSTE_UMBRAL = 0.2        # las ventanas en vivo son más cortas y ruidosas que las del enrolamiento
+AJUSTE_UMBRAL = 0.2        # galerías viejas (un solo umbral calibrado con ventanas de 2 s)
+AJUSTE_PERSONA = 0.12      # galerías nuevas: umbral de cada persona calibrado con ventanas de 1 s
+                           # (en vivo la voz se parece ~0.1 menos a su huella que durante el enrolamiento)
 DESC_SIMILITUD = 0.3       # similitud para juntar a un desconocido con un grupo ya visto
 DESC_MIN_SEG = 1.5         # duración mínima para crear un grupo de desconocido nuevo (s)
 SOLAPE_MIN_SEG = 1.0       # empate mínimo entre dos voces para marcar posible solapamiento (s)
@@ -304,20 +306,33 @@ class DetectorVoz:
 # ---------------------------------------------------------------- galería
 
 class Galeria:
-    def __init__(self, nombres, centroides, umbral):
+    def __init__(self, nombres, centroides, umbral, umbrales=None):
         self.nombres = list(nombres)
         self.centroides = np.asarray(centroides, dtype=np.float32)
         self.umbral = float(umbral)
+        # umbral de cada persona: una voz muy distinta a las demás no necesita la misma exigencia
+        # que dos voces parecidas entre sí (p. ej. mamá e hija)
+        self.umbrales = None if umbrales is None else np.asarray(umbrales, dtype=np.float32)
 
     @classmethod
     def cargar(cls, ruta=ARCHIVO_GALERIA):
         if not os.path.exists(ruta):
             raise SystemExit("No hay galería. Primero enrola voces: python transcriptor.py enrolar --nombre TuNombre")
         d = np.load(ruta)
-        return cls([str(n) for n in d["nombres"]], d["centroides"], float(d["umbral"]))
+        umbrales = d["umbrales"] if "umbrales" in d.files else None
+        return cls([str(n) for n in d["nombres"]], d["centroides"], float(d["umbral"]), umbrales)
 
     def guardar(self, ruta=ARCHIVO_GALERIA):
-        np.savez(ruta, nombres=np.array(self.nombres), centroides=self.centroides, umbral=self.umbral)
+        extra = {} if self.umbrales is None else {"umbrales": self.umbrales}
+        np.savez(ruta, nombres=np.array(self.nombres), centroides=self.centroides, umbral=self.umbral, **extra)
+
+    def niveles(self, umbral=None):
+        """Similitud mínima de una ventana de 1 s para aceptar a cada persona. Si se pasa --umbral
+        (o la galería es vieja), se usa un solo valor para todos, como antes."""
+        if self.umbrales is None or (umbral is not None and abs(umbral - self.umbral) > 1e-6):
+            base = self.umbral if umbral is None else umbral
+            return np.full(len(self.nombres), base - AJUSTE_UMBRAL, dtype=np.float32)
+        return self.umbrales - AJUSTE_PERSONA
 
     def comparar(self, emb):
         return sorted(((float(emb @ c), n) for n, c in zip(self.nombres, self.centroides)), reverse=True)
@@ -379,29 +394,59 @@ def calibrar(embs, nombres, centroides):
     return umbral
 
 
+def centroide_robusto(E, descarte=0.1):
+    """Promedio de las huellas de una persona sin el 10 % de ventanas que menos se parecen al resto
+    (toses, ruidos, alguien más hablando de fondo)."""
+    c = normalizar(E.mean(axis=0))
+    if len(E) >= 10:
+        sim = E @ c
+        c = normalizar(E[sim >= np.quantile(sim, descarte)].mean(axis=0))
+    return c
+
+
+def umbrales_por_persona(embs1, nombres, centroides):
+    """Umbral de cada persona con ventanas de 1 s (las mismas que usa la separación): punto medio
+    entre sus propias ventanas más bajas (P10) y las ventanas ajenas que más se le parecen (P90)."""
+    umbrales = []
+    for i, n in enumerate(nombres):
+        propio = np.percentile(embs1[n] @ centroides[i], 10)
+        ajenas = [embs1[m] @ centroides[i] for m in nombres if m != n and len(embs1[m])]
+        if ajenas:
+            u = (propio + np.percentile(np.concatenate(ajenas), 90)) / 2
+        else:
+            u = propio - 0.15
+        umbrales.append(float(np.clip(u, 0.25, 0.6)))
+    return np.array(umbrales, dtype=np.float32)
+
+
 def construir_galeria(ident, carpeta=CARPETA_VOCES):
     personas = recolectar_clips(carpeta)
     if not personas:
         raise SystemExit(f"No hay audios en '{carpeta}/'.")
     print("Calculando huellas de voz:")
-    embs = {}
+    embs, embs1 = {}, {}
     for nombre, clips in personas.items():
-        trozos, dur = [], 0.0
+        trozos, cortos, dur = [], [], 0.0
         for c in clips:
             x = cargar_audio(c)
             dur += len(x) / SR
             trozos += trocear(x, VENTANA_ID, VENTANA_ID / 2)
+            cortos += trocear(x, VENTANA_SEP, VENTANA_SEP / 2)
         trozos = quitar_silencios(trozos)
         largo = max(len(t) for t in trozos)
         mismos = [t for t in trozos if len(t) == largo]
         embs[nombre] = ident.embeddings_lote(mismos)
+        cortos = [t for t in quitar_silencios(cortos) if len(t) == int(VENTANA_SEP * SR)]
+        embs1[nombre] = ident.embeddings_lote(cortos) if cortos else embs[nombre]
         aviso = "   AVISO: menos de 20 s, graba más" if dur < 20 else ""
         print(f"  {nombre}: {len(clips)} audio(s), {dur:.0f} s, {len(mismos)} ventanas útiles{aviso}")
     nombres = list(embs)
-    centroides = np.stack([normalizar(embs[n].mean(axis=0)) for n in nombres])
+    centroides = np.stack([centroide_robusto(embs[n]) for n in nombres])
     umbral = calibrar(embs, nombres, centroides)
-    print(f"  Umbral sugerido: {umbral:.2f}")
-    return Galeria(nombres, centroides, umbral)
+    umbrales = umbrales_por_persona(embs1, nombres, centroides)
+    print(f"  Umbral general: {umbral:.2f} | por persona: " +
+          ", ".join(f"{n} {u:.2f}" for n, u in zip(nombres, umbrales)))
+    return Galeria(nombres, centroides, umbral, umbrales)
 
 
 # ---------------------------------------------------------------- segmentación en streaming
@@ -459,6 +504,25 @@ class Segmentador:
 
 # ---------------------------------------------------------------- separación de hablantes
 
+_VAD_SEP = {}
+
+
+def mascara_voz(audio):
+    """True en las muestras con voz (Silero VAD; no depende del volumen de cada persona)."""
+    import torch
+    from silero_vad import load_silero_vad, get_speech_timestamps
+    if "modelo" not in _VAD_SEP:
+        _VAD_SEP["modelo"] = load_silero_vad()
+    x = np.ascontiguousarray(audio, dtype=np.float32)
+    mascara = np.zeros(len(x), dtype=bool)
+    if len(x) < BLOQUE:
+        return ~mascara
+    for r in get_speech_timestamps(torch.from_numpy(x), _VAD_SEP["modelo"], sampling_rate=SR,
+                                   min_silence_duration_ms=100, speech_pad_ms=60):
+        mascara[r["start"]:r["end"]] = True
+    return mascara
+
+
 def viterbi(E, penal, inicial=None):
     """Ruta de estados que maximiza la suma de puntajes menos `penal` por cada cambio de hablante."""
     F, K = E.shape
@@ -489,7 +553,7 @@ class Separador:
 
     def __init__(self, ident, galeria, umbral, margen=0.05, agrupar_desconocidos=True):
         self.ident, self.galeria = ident, galeria
-        self.u = umbral - AJUSTE_UMBRAL
+        self.niveles = galeria.niveles(umbral)
         self.margen = margen
         self.agrupar = agrupar_desconocidos
         self.ultimo = None
@@ -503,6 +567,15 @@ class Separador:
         if inicios[-1] + L < n:
             inicios.append(n - L)
         return [(a, a + L) for a in inicios], self.ident.embeddings_lote([audio[a:a + L] for a in inicios])
+
+    @staticmethod
+    def _con_voz(audio, vent):
+        """Qué ventanas tienen voz en al menos la mitad de su duración (según el detector de voz).
+        Las frases en vivo terminan con ~0.5 s de silencio; sin este filtro esas ventanas no se
+        parecían a nadie y la última palabra salía como «Desconocido»."""
+        mascara = mascara_voz(audio)
+        ok = np.array([mascara[a:b].mean() >= 0.5 for a, b in vent])
+        return ok if ok.any() else np.ones(len(vent), dtype=bool)
 
     def _grupo_desconocido(self, e, dur):
         sims = [float(e @ g["c"]) for g in self.grupos]
@@ -523,23 +596,31 @@ class Separador:
         nombres, C = self.galeria.nombres, self.galeria.centroides
         K, h = len(nombres), int(paso * SR)
         vent, Em = self._ventanas(audio, paso)
+        voz = self._con_voz(audio, vent)
         Sim = Em @ C.T
         F = max(1, int(np.ceil(len(audio) / h)))
         acc, cnt = np.zeros((F, K)), np.zeros(F)
-        for (a, b), s in zip(vent, Sim):
+        for (a, b), s, v in zip(vent, Sim, voz):
+            if not v:
+                continue
             fa, fb = a // h, max(a // h + 1, int(np.ceil(b / h)))
             acc[fa:fb] += s
             cnt[fa:fb] += 1
         P = acc / np.maximum(cnt, 1)[:, None]
-        E = np.concatenate([P, np.full((F, 1), self.u)], axis=1)
+        # puntaje de cada persona = cuánto supera su propio umbral; "desconocido" = 0
+        E = np.concatenate([P - self.niveles[None, :], np.zeros((F, 1))], axis=1)
+        E[cnt == 0] = 0.0        # tramos sin voz: no aportan evidencia, se queda quien venía hablando
         ruta = viterbi(E, PENAL_CAMBIO, self.ultimo)
         self.ultimo = ruta[-1]
         # posible solapamiento: las dos voces enroladas más parecidas superan el umbral y casi empatan
         # durante al menos 1 s (en un cambio de turno normal el empate dura menos)
         solape = np.zeros(F, dtype=bool)
         if K > 1:
-            orden = np.sort(P, axis=1)
-            empate = (orden[:, -2] >= self.u) & (orden[:, -1] - orden[:, -2] < self.margen)
+            orden = np.argsort(P, axis=1)
+            filas = np.arange(F)
+            p1, p2 = P[filas, orden[:, -1]], P[filas, orden[:, -2]]
+            supera2 = p2 >= self.niveles[orden[:, -2]]
+            empate = supera2 & (p1 - p2 < self.margen) & (cnt > 0)
             minimo, f = max(2, int(round(SOLAPE_MIN_SEG / paso))), 0
             while f < F:
                 g = f
@@ -562,7 +643,8 @@ class Separador:
                 nombre = "Desconocido"
                 if self.agrupar:
                     a, b = f * h, g * h
-                    sel = [i for i, (va, vb) in enumerate(vent) if va < b and vb > a]
+                    sel = [i for i, (va, vb) in enumerate(vent) if va < b and vb > a and voz[i]] or \
+                          [i for i, (va, vb) in enumerate(vent) if va < b and vb > a]
                     nombre = self._grupo_desconocido(normalizar(Em[sel].mean(axis=0)), (g - f) * paso)
             tramos.append({"ini": ini, "fin": fin, "nombre": nombre, "score": score,
                            "solape": bool(solape[f:g].any())})
@@ -717,13 +799,16 @@ def bloques_de_voz(x, max_s=28.0, min_s=12.0):
     return bloques
 
 
-def transcribir_por_bloques(asr, x, beam, vocabulario=None, prompt=None, arrastre=False):
+def transcribir_por_bloques(asr, x, beam, vocabulario=None, prompt=None, arrastre=False, al_avance=None):
     """Pasada final por bloques: cada bloque recibe el prompt completo (y, con arrastre=True, el
     final del bloque anterior). Así Whisper mantiene puntos, mayúsculas y términos en inglés en
     TODO el audio, no solo en los primeros 30 s, sin el arrastre interno que causaba bucles."""
     prompt = prompt or prompt_base()
     palabras, cola, fin_anterior = [], "", None
-    for a, b in bloques_de_voz(x):
+    bloques = bloques_de_voz(x)
+    for n, (a, b) in enumerate(bloques):
+        if al_avance:
+            al_avance(n / max(len(bloques), 1))
         segmentos, _ = asr.transcribe(x[a:b], language="es", beam_size=beam, word_timestamps=True,
                                       vad_filter=True, condition_on_previous_text=False,
                                       initial_prompt=prompt + (" " + cola if cola else ""), hotwords=vocabulario)
@@ -793,8 +878,20 @@ class Procesador:
 # ---------------------------------------------------------------- pasada final (alta precisión)
 
 def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabulario=None, progreso=True):
-    """Transcripción final: Whisper ve todo el audio con su contexto completo y la separación
-    de hablantes se hace sobre cada tramo de voz, manteniendo los grupos de desconocidos."""
+    """Transcripción final en texto: '[Nombre] (mm:ss - mm:ss): texto' por intervención."""
+    unidos, grupos = refinar_grupos(x, galeria, ident, asr, umbral, margen, beam, vocabulario, progreso)
+    lineas = []
+    for g in unidos:
+        marca = " [posible solapamiento con otro hablante]" if g["solape"] else ""
+        lineas.append(f"[{g['nombre']}] ({hhmmss(g['inicio'])} - {hhmmss(g['fin'])}): {g['texto']}{marca}")
+    etiquetadas = [((a + b) / 2, g["nombre"], w, a, b) for g in grupos for a, b, w in g["palabras"]]
+    return lineas, etiquetadas
+
+
+def refinar_grupos(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabulario=None, progreso=True,
+                   al_avance=None):
+    """Pasada final: separa hablantes por tramo de voz y transcribe por bloques. Regresa las
+    intervenciones ya unidas (dicts con nombre, inicio, fin, texto, solape) y los grupos crudos."""
     import torch
     from silero_vad import load_silero_vad, get_speech_timestamps
     # tramos de voz separados por al menos 1 s de silencio: así el Viterbi ve los turnos cortos con contexto
@@ -809,6 +906,8 @@ def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabular
         if b - a < int(0.3 * SR):
             continue
         tramos += sep.etiquetar(x[a:b], a / SR)
+        if al_avance:
+            al_avance("Separando voces", (i + 1) / max(len(regiones), 1))
         if progreso:
             print(f"\r  Separando voces... {100 * (i + 1) // max(len(regiones), 1)}%", end="", flush=True)
     if progreso:
@@ -816,7 +915,10 @@ def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabular
         print("  Transcribiendo por bloques...")
     # Bloques de hasta 28 s cortados en pausas, cada uno con el prompt completo y sin arrastrar el texto
     # anterior. En las pruebas: error 8.7 % (antes 10-23 %), sin bucles y con la puntuación completa.
-    palabras = transcribir_por_bloques(asr, nivelado, beam, vocabulario)
+    if al_avance:
+        al_avance("Transcribiendo", 0.0)
+    palabras = transcribir_por_bloques(asr, nivelado, beam, vocabulario,
+                                       al_avance=(lambda f: al_avance("Transcribiendo", f)) if al_avance else None)
     if not tramos or not palabras:
         return [], []
     grupos = agrupar(palabras, tramos)
@@ -829,12 +931,9 @@ def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabular
             u["solape"] = u["solape"] or g["solape"]
         else:
             unidos.append(dict(g))
-    lineas = []
     for g in unidos:
-        marca = " [posible solapamiento con otro hablante]" if g["solape"] else ""
-        lineas.append(f"[{g['nombre']}] ({hhmmss(g['inicio'])} - {hhmmss(g['fin'])}): {corregir(g['texto'])}{marca}")
-    etiquetadas = [((a + b) / 2, g["nombre"], w, a, b) for g in grupos for a, b, w in g["palabras"]]
-    return lineas, etiquetadas
+        g["texto"] = corregir(g["texto"])
+    return unidos, grupos
 
 
 # ---------------------------------------------------------------- comandos
@@ -1041,7 +1140,7 @@ def cmd_vivo(args):
 
 
 def procesar_archivo(x, galeria, ident, asr, umbral, margen, beam, contexto, ruta_txt, detalle, vocab,
-                     vad=0.5, silencio_ms=500, max_seg=6.0, mostrar=print):
+                     vad=0.5, silencio_ms=600, max_seg=8.0, mostrar=print):
     """Mismo flujo que 'vivo' sobre un audio ya grabado (bloque por bloque)."""
     x = np.concatenate([x, np.zeros((-len(x)) % BLOQUE, dtype=np.float32)])
     proc = Procesador(ident, galeria, asr, umbral, margen, beam, contexto, ruta_txt, detalle, vocab)
@@ -1087,8 +1186,9 @@ def main():
     comun.add_argument("--umbral", type=float, default=None, help="similitud mínima para reconocer a alguien")
     comun.add_argument("--margen", type=float, default=0.05, help="diferencia mínima entre las 2 voces más parecidas")
     comun.add_argument("--beam", type=int, default=None, help="beam de Whisper (más alto = más preciso y lento)")
-    comun.add_argument("--max-seg", type=float, default=6.0, help="duración máxima de cada fragmento (s)")
-    comun.add_argument("--silencio-ms", type=int, default=500, help="silencio que cierra una frase (ms)")
+    # 8 s y 0.6 s: frases más completas; en la lectura de prueba el error en vivo bajó de 16.7 % a 14.6 %
+    comun.add_argument("--max-seg", type=float, default=8.0, help="duración máxima de cada fragmento (s)")
+    comun.add_argument("--silencio-ms", type=int, default=600, help="silencio que cierra una frase (ms)")
     comun.add_argument("--vad", type=float, default=0.5, help="sensibilidad del detector de voz (0-1)")
     comun.add_argument("--sin-contexto", action="store_true", help="no pasar el texto anterior a Whisper")
     comun.add_argument("--sin-espanglish", action="store_true",
