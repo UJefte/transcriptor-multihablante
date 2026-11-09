@@ -7,25 +7,7 @@ import torch.nn.functional as F
 EPS = 1e-8
 
 class GlobalLayerNorm(nn.Module):
-    """Calculate Global Layer Normalization.
-
-    Arguments
-    ---------
-       dim : (int or list or torch.Size)
-           Input shape from an expected input of size.
-       eps : float
-           A value added to the denominator for numerical stability.
-       elementwise_affine : bool
-          A boolean value that when set to True,
-          this module has learnable per-element affine parameters
-          initialized to ones (for weights) and zeros (for biases).
-
-    Example
-    -------
-    >>> x = torch.randn(5, 10, 20)
-    >>> GLN = GlobalLayerNorm(10, 3)
-    >>> x_norm = GLN(x)
-    """
+    """Normalización de capa global."""
 
     def __init__(self, dim, shape, eps=1e-8, elementwise_affine=True):
         super(GlobalLayerNorm, self).__init__()
@@ -45,17 +27,11 @@ class GlobalLayerNorm(nn.Module):
             self.register_parameter("bias", None)
 
     def forward(self, x):
-        """Returns the normalized tensor.
-
-        Arguments
-        ---------
-        x : torch.Tensor
-            Tensor of size [N, C, K, S] or [N, C, L].
-        """
-        # x = N x C x K x S or N x C x L
+        """Regresa el tensor normalizado."""
+        # x = N x C x K x S o N x C x L
         # N x 1 x 1
-        # cln: mean,var N x 1 x K x S
-        # gln: mean,var N x 1 x 1
+        # cln: media y varianza N x 1 x K x S
+        # gln: media y varianza N x 1 x 1
         if x.dim() == 3:
             mean = torch.mean(x, (1, 2), keepdim=True)
             var = torch.mean((x - mean) ** 2, (1, 2), keepdim=True)
@@ -81,21 +57,7 @@ class GlobalLayerNorm(nn.Module):
 
 
 class CumulativeLayerNorm(nn.LayerNorm):
-    """Calculate Cumulative Layer Normalization.
-
-       Arguments
-       ---------
-       dim : int
-        Dimension that you want to normalize.
-       elementwise_affine : True
-        Learnable per-element affine parameters.
-
-    Example
-    -------
-    >>> x = torch.randn(5, 10, 20)
-    >>> CLN = CumulativeLayerNorm(10)
-    >>> x_norm = CLN(x)
-    """
+    """Normalización de capa acumulada."""
 
     def __init__(self, dim, elementwise_affine=True):
         super(CumulativeLayerNorm, self).__init__(
@@ -103,24 +65,18 @@ class CumulativeLayerNorm(nn.LayerNorm):
         )
 
     def forward(self, x):
-        """Returns the normalized tensor.
-
-        Arguments
-        ---------
-        x : torch.Tensor
-            Tensor size [N, C, K, S] or [N, C, L]
-        """
-        # x: N x C x K x S or N x C x L
+        """Regresa el tensor normalizado."""
+        # x: N x C x K x S o N x C x L
         # N x K x S x C
         if x.dim() == 4:
             x = x.permute(0, 2, 3, 1).contiguous()
-            # N x K x S x C == only channel norm
+            # N x K x S x C == normaliza solo por canal
             x = super().forward(x)
             # N x C x K x S
             x = x.permute(0, 3, 1, 2).contiguous()
         if x.dim() == 3:
             x = torch.transpose(x, 1, 2)
-            # N x L x C == only channel norm
+            # N x L x C == normaliza solo por canal
             x = super().forward(x)
             # N x C x L
             x = torch.transpose(x, 1, 2)
@@ -128,8 +84,7 @@ class CumulativeLayerNorm(nn.LayerNorm):
 
 
 def select_norm(norm, dim, shape):
-    """Just a wrapper to select the normalization type.
-    """
+    """Elige el tipo de normalización."""
 
     if norm == "gln":
         return GlobalLayerNorm(dim, shape, elementwise_affine=True)
@@ -141,10 +96,7 @@ def select_norm(norm, dim, shape):
         return nn.BatchNorm1d(dim)
 
 class Swish(nn.Module):
-    """
-    Swish is a smooth, non-monotonic function that consistently matches or outperforms ReLU on deep networks applied
-    to a variety of challenging domains such as Image classification and Machine translation.
-    """
+    """Función de activación Swish, suave y parecida a ReLU."""
     def __init__(self):
         super(Swish, self).__init__()
     
@@ -153,10 +105,7 @@ class Swish(nn.Module):
 
 
 class GLU(nn.Module):
-    """
-    The gating mechanism is called Gated Linear Units (GLU), which was first introduced for natural language processing
-    in the paper “Language Modeling with Gated Convolutional Networks”
-    """
+    """Compuerta GLU (Gated Linear Units)."""
     def __init__(self, dim: int) -> None:
         super(GLU, self).__init__()
         self.dim = dim
@@ -166,7 +115,7 @@ class GLU(nn.Module):
         return outputs * gate.sigmoid()
 
 class Transpose(nn.Module):
-    """ Wrapper class of torch.transpose() for Sequential module. """
+    """Envoltura de torch.transpose() para usarse en Sequential."""
     def __init__(self, shape: tuple):
         super(Transpose, self).__init__()
         self.shape = shape
@@ -175,10 +124,7 @@ class Transpose(nn.Module):
         return x.transpose(*self.shape)
 
 class Linear(nn.Module):
-    """
-    Wrapper class of torch.nn.Linear
-    Weight initialize by xavier initialization and bias initialize to zeros.
-    """
+    """Capa lineal con pesos iniciales xavier y sesgo en cero."""
     def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
         super(Linear, self).__init__()
         self.linear = nn.Linear(in_features, out_features, bias=bias)
@@ -190,21 +136,7 @@ class Linear(nn.Module):
         return self.linear(x)
 
 class DepthwiseConv1d(nn.Module):
-    """
-    When groups == in_channels and out_channels == K * in_channels, where K is a positive integer,
-    this operation is termed in literature as depthwise convolution.
-    Args:
-        in_channels (int): Number of channels in the input
-        out_channels (int): Number of channels produced by the convolution
-        kernel_size (int or tuple): Size of the convolving kernel
-        stride (int, optional): Stride of the convolution. Default: 1
-        padding (int or tuple, optional): Zero-padding added to both sides of the input. Default: 0
-        bias (bool, optional): If True, adds a learnable bias to the output. Default: True
-    Inputs: inputs
-        - **inputs** (batch, in_channels, time): Tensor containing input vector
-    Returns: outputs
-        - **outputs** (batch, out_channels, time): Tensor produces by depthwise 1-D convolution.
-    """
+    """Convolución por profundidad (depthwise)."""
     def __init__(
             self,
             in_channels: int,
@@ -231,20 +163,7 @@ class DepthwiseConv1d(nn.Module):
 
 
 class PointwiseConv1d(nn.Module):
-    """
-    When kernel size == 1 conv1d, this operation is termed in literature as pointwise convolution.
-    This operation often used to match dimensions.
-    Args:
-        in_channels (int): Number of channels in the input
-        out_channels (int): Number of channels produced by the convolution
-        stride (int, optional): Stride of the convolution. Default: 1
-        padding (int or tuple, optional): Zero-padding added to both sides of the input. Default: 0
-        bias (bool, optional): If True, adds a learnable bias to the output. Default: True
-    Inputs: inputs
-        - **inputs** (batch, in_channels, time): Tensor containing input vector
-    Returns: outputs
-        - **outputs** (batch, out_channels, time): Tensor produces by pointwise 1-D convolution.
-    """
+    """Convolución punto a punto; sirve para igualar dimensiones."""
     def __init__(
             self,
             in_channels: int,
@@ -268,17 +187,7 @@ class PointwiseConv1d(nn.Module):
 
 
 class ConvModule(nn.Module):
-    """
-    Modified from Conformer convolution module to perform depth-wise convolution
-    Args:
-        in_channels (int): Number of channels in the input
-        kernel_size (int or tuple, optional): Size of the convolving kernel Default: 31
-        dropout_p (float, optional): probability of dropout
-    Inputs: inputs
-        inputs (batch, time, dim): Tensor contains input sequences
-    Outputs: outputs
-        outputs (batch, time, dim): Tensor produces by conformer convolution module.
-    """
+    """Módulo de convolución basado en Conformer, por profundidad."""
     def __init__(
             self,
             in_channels: int,
