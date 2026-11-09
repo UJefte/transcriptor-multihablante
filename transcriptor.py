@@ -30,7 +30,7 @@ from math import gcd
 
 import numpy as np
 
-VERSION = "2.2"
+VERSION = "3.0"
 SR = 16000                 # frecuencia de muestreo de trabajo
 BLOQUE = 512               # muestras por bloque para el detector de voz (32 ms)
 VENTANA_ID = 2.0           # ventanas del enrolamiento y la calibración (s)
@@ -45,6 +45,7 @@ DESC_SIMILITUD = 0.3       # similitud para juntar a un desconocido con un grupo
 DESC_MIN_SEG = 1.5         # duración mínima para crear un grupo de desconocido nuevo (s)
 SOLAPE_MIN_SEG = 1.0       # empate mínimo entre dos voces para marcar posible solapamiento (s)
 CARPETA_VOCES = "voces"
+CARPETA_MODELOS = "modelos"   # la app .exe la cambia a la carpeta del programa
 ARCHIVO_GALERIA = "galeria.npz"
 ARCHIVO_VOCABULARIO = "vocabulario.txt"
 ARCHIVO_VOCAB_TECNICO = "vocabulario_tecnico.txt"
@@ -62,8 +63,55 @@ ESPANGLISH = {"activo": True}      # se apaga con --sin-espanglish para comparar
 
 def prompt_base():
     return PROMPT_ESPANGLISH if ESPANGLISH["activo"] else PROMPT_SIMPLE
+def _filtro_80hz():
+    from scipy.signal import butter
+    return butter(2, 80.0, "highpass", fs=SR, output="sos")
+
+
+def filtro_graves(x):
+    """Quita lo que está abajo de 80 Hz (golpes en la mesa, ventilador, vibración). La voz no llega tan abajo."""
+    from scipy.signal import sosfilt
+    if len(x) < 32:
+        return np.asarray(x, dtype=np.float32)
+    return sosfilt(_filtro_80hz(), x).astype(np.float32)
+
+
+class FiltroGraves:
+    """El mismo filtro pero para audio que va llegando en pedacitos (grabación en vivo)."""
+
+    def __init__(self):
+        from scipy.signal import sosfilt_zi
+        self.sos = _filtro_80hz()
+        self.zi = sosfilt_zi(self.sos) * 0.0
+
+    def __call__(self, x):
+        from scipy.signal import sosfilt
+        if len(x) == 0:
+            return x
+        y, self.zi = sosfilt(self.sos, x, zi=self.zi)
+        return y.astype(np.float32)
+
+
+def quitar_repetidos(texto, minimo=3):
+    """En las pistas separadas Whisper a veces escribe la misma frase dos veces seguidas. Se deja una sola."""
+    palabras = texto.split()
+    limpia = lambda lista: [w.strip(".,;:¿?¡!").lower() for w in lista]
+    salida, i = [], 0
+    while i < len(palabras):
+        for n in range((len(palabras) - i) // 2, minimo - 1, -1):
+            if limpia(palabras[i:i + n]) == limpia(palabras[i + n:i + 2 * n]):
+                i += n             # se brinca la primera copia y sigue con la segunda
+                break
+        else:
+            salida.append(palabras[i])
+            i += 1
+    limpio = " ".join(salida)
+    return limpio[:1].upper() + limpio[1:]
+
+
 # Frases que Whisper suele inventar cuando no hay voz clara
-ALUCINACIONES = ("amara.org", "subtítulos realizados", "suscríbete", "gracias por ver el video")
+ALUCINACIONES = ("amara.org", "subtítulos realizados", "suscríbete", "suscríbanse", "gracias por ver",
+                 "dale like", "www.", ".com", "___")   # frases que Whisper inventa con música, ruido o videos
 
 TEXTO_ENROLAMIENTO = """
 Lee este párrafo en voz alta, con tu tono normal y a la distancia a la que
@@ -241,7 +289,7 @@ class Identificador:
             from speechbrain.inference.speaker import EncoderClassifier
         except ImportError:
             from speechbrain.pretrained import EncoderClassifier
-        opciones = dict(source="speechbrain/spkrec-ecapa-voxceleb", savedir=os.path.join("modelos", "ecapa"),
+        opciones = dict(source="speechbrain/spkrec-ecapa-voxceleb", savedir=os.path.join(CARPETA_MODELOS, "ecapa"),
                         run_opts={"device": dispositivo})
         try:  # En Windows evita el error de enlaces simbólicos
             from speechbrain.utils.fetching import LocalStrategy
@@ -272,11 +320,16 @@ def cargar_whisper(nombre, dispositivo, quiet=False):
     if nombre is None:
         nombre = "large-v3-turbo" if gpu else "small"
     intentos = ([("cuda", "float16")] if gpu else []) + [("cpu", "int8")]
+    # si el modelo está copiado en modelos/whisper/<nombre> (p. ej. junto al .exe), se usa sin descargar
+    local = os.path.join(CARPETA_MODELOS, "whisper", nombre)
+    origen = local if os.path.exists(os.path.join(local, "model.bin")) else nombre
     for dev, tipo in intentos:
         try:
             if not quiet:
                 print(f"Cargando Whisper '{nombre}' en {dev}... (la primera vez se descarga)")
-            modelo = WhisperModel(nombre, device=dev, compute_type=tipo)
+            # se deja un núcleo libre para que la ventana no se trabe
+            hilos = max(2, (os.cpu_count() or 2) - 1) if dev == "cpu" else 0
+            modelo = WhisperModel(origen, device=dev, compute_type=tipo, cpu_threads=hilos)
             list(modelo.transcribe(np.zeros(SR, dtype=np.float32), language="es")[0])  # calentamiento
             if not quiet:
                 print(f"Whisper '{nombre}' listo en {dev} ({tipo}).")
@@ -404,6 +457,9 @@ def centroide_robusto(E, descarte=0.1):
     return c
 
 
+AJENO_TIPICO = 0.22   # parecido alto (P90) de una voz ajena contra una huella, medido en las pruebas del equipo
+
+
 def umbrales_por_persona(embs1, nombres, centroides):
     """Umbral de cada persona con ventanas de 1 s (las mismas que usa la separación): punto medio
     entre sus propias ventanas más bajas (P10) y las ventanas ajenas que más se le parecen (P90)."""
@@ -414,7 +470,10 @@ def umbrales_por_persona(embs1, nombres, centroides):
         if ajenas:
             u = (propio + np.percentile(np.concatenate(ajenas), 90)) / 2
         else:
-            u = propio - 0.15
+            # una sola persona enrolada: no hay voces ajenas con qué comparar, así que se usa lo que
+            # medimos en las pruebas (una voz ajena rara vez pasa de ~0.22 de parecido). Antes se usaba
+            # propio - 0.15 y el umbral quedaba tan bajo que hasta la voz de un video salía con su nombre.
+            u = (propio + AJENO_TIPICO) / 2
         umbrales.append(float(np.clip(u, 0.25, 0.6)))
     return np.array(umbrales, dtype=np.float32)
 
@@ -726,7 +785,7 @@ def filtrar_segmentos(segmentos):
             continue
         if any(a in texto for a in ALUCINACIONES):
             continue
-        palabras.extend((w.start, w.end, w.word) for w in (s.words or []))
+        palabras.extend((w.start, w.end, w.word) for w in (s.words or []) if w.word.strip(" _"))
     return palabras
 
 
@@ -825,7 +884,102 @@ def transcribir_por_bloques(asr, x, beam, vocabulario=None, prompt=None, arrastr
         texto = "".join(w for _, _, w in nuevas).strip()
         if arrastre and texto:
             cola = texto[-200:]
+    palabras = rellenar_huecos(asr, x, palabras, beam, prompt)
+    palabras = frases_en_ingles(asr, x, palabras, beam, vocabulario)
     return quitar_repeticiones(palabras)
+
+
+HUECO_MIN = 1.2      # segundos sin palabras que vale la pena revisar
+VOZ_EN_HUECO = 0.8   # ...si el detector oyó al menos esto de voz ahí
+
+
+def rellenar_huecos(asr, x, palabras, beam, prompt):
+    """A veces Whisper se "salta" un pedazo: resume la frase y brinca 2 o 3 segundos de voz
+    (en una prueba se comió "volando en el caché o el build se saltó esa parte"). Aquí se buscan
+    huecos entre palabras donde el detector sí oyó voz, se transcribe solo ese pedazo y se mete
+    lo que salga en su lugar."""
+    if len(palabras) < 2:
+        return palabras
+    voz = mascara_voz(x)
+    salida = [palabras[0]]
+    for anterior, siguiente in zip(palabras, palabras[1:]):
+        ini, fin = anterior[1], siguiente[0]
+        if fin - ini >= HUECO_MIN and voz[int(ini * SR):int(fin * SR)].sum() / SR >= VOZ_EN_HUECO:
+            a, b = max(0, int((ini - 0.3) * SR)), min(len(x), int((fin + 0.3) * SR))
+            segmentos, _ = asr.transcribe(x[a:b], language="es", beam_size=beam, word_timestamps=True,
+                                          vad_filter=False, condition_on_previous_text=False,
+                                          initial_prompt=prompt)
+            nuevas = [(a / SR + i, a / SR + f, w) for i, f, w in filtrar_segmentos(segmentos)]
+            # solo lo que cae dentro del hueco, y sin repetir las palabras de las orillas
+            nuevas = [n for n in nuevas if n[0] >= ini - 0.15 and n[1] <= fin + 0.15]
+            if nuevas and _norm(nuevas[0][2]) == _norm(anterior[2]):
+                nuevas = nuevas[1:]
+            if nuevas and _norm(nuevas[-1][2]) == _norm(siguiente[2]):
+                nuevas = nuevas[:-1]
+            if nuevas and nuevas[0][2].strip()[:1].islower() and salida[-1][2].rstrip()[-1:] in ".?!":
+                # "se quedó bueno. volando en..." -> "se quedó bueno volando en..."
+                i0, f0, w0 = salida[-1]
+                salida[-1] = (i0, f0, w0.rstrip()[:-1])
+            salida += nuevas
+        salida.append(siguiente)
+    return salida
+
+
+# ---------------------------------------------------------------- frases completas en inglés
+# A Whisper se le dice que el audio es español. Si alguien dice una frase entera en inglés, Whisper
+# la "pasa" al español por su cuenta ("Sorry my friend" -> "La historia, mi amigo"). Por eso, en
+# cada frase larga se le pregunta a Whisper qué idioma oye; si está muy seguro de que es inglés,
+# esa frase se transcribe en inglés. Luego la opción "Traducir" decide si se deja así o se traduce.
+INGLES_SEGURO = 0.85     # qué tan seguro debe estar (comparando solo inglés contra español)
+INGLES_MIN_S = 2.0       # con frases más cortas se equivoca seguido, así que se quedan en español
+DETECTAR_INGLES = {"activo": True, "asr": None}   # motor pone aquí el modelo chico para que sea rápido
+
+
+def es_ingles(asr, audio):
+    """True si Whisper está muy seguro de que el pedazo de audio está en inglés."""
+    if not DETECTAR_INGLES["activo"] or len(audio) < INGLES_MIN_S * SR:
+        return False
+    try:
+        _, _, todos = (DETECTAR_INGLES["asr"] or asr).detect_language(audio)
+    except Exception:          # versiones viejas de faster-whisper no lo tienen
+        return False
+    d = dict(todos)
+    en, es = d.get("en", 0.0), d.get("es", 0.0)
+    return en / (en + es + 1e-9) >= INGLES_SEGURO
+
+
+def partir_en_frases(palabras, pausa=1.0):
+    """Junta las palabras en frases: corta en pausas o donde hay punto final."""
+    frases, actual = [], []
+    for p in palabras:
+        if actual and (p[0] - actual[-1][1] > pausa or actual[-1][2].rstrip()[-1:] in ".?!"):
+            frases.append(actual)
+            actual = []
+        actual.append(p)
+    if actual:
+        frases.append(actual)
+    return frases
+
+
+def frases_en_ingles(asr, x, palabras, beam, vocabulario=None):
+    """Versión final: revisa cada frase larga y, si es inglés, la vuelve a escribir en inglés."""
+    if not DETECTAR_INGLES["activo"]:
+        return palabras
+    salida = []
+    for frase in partir_en_frases(palabras):
+        ini, fin = frase[0][0], frase[-1][1]
+        a, b = max(0, int((ini - 0.2) * SR)), min(len(x), int((fin + 0.2) * SR))
+        if fin - ini >= INGLES_MIN_S and es_ingles(asr, x[a:b]):
+            segmentos, _ = asr.transcribe(x[a:b], language="en", beam_size=beam, word_timestamps=True,
+                                          vad_filter=False, condition_on_previous_text=False,
+                                          hotwords=vocabulario)
+            nuevas = [(a / SR + i, a / SR + f, w) for i, f, w in filtrar_segmentos(segmentos)]
+            # si en inglés casi no sale nada, era español dudoso: se queda como estaba
+            if len(nuevas) >= max(1, len(frase) // 2):
+                salida += nuevas
+                continue
+        salida += frase
+    return salida
 
 
 class Procesador:
@@ -844,8 +998,11 @@ class Procesador:
         if self.contexto and self.ultimo_texto:
             prompt += " " + self.ultimo_texto[-200:]
         audio = np.concatenate([nivelar_volumen(audio), np.zeros(int(0.4 * SR), np.float32)])
+        idioma = "es"
+        if es_ingles(self.asr, audio):
+            idioma, prompt = "en", None      # el prompt en español lo jalaría otra vez al español
         segmentos, _ = self.asr.transcribe(
-            audio, language="es", beam_size=self.beam, word_timestamps=True,
+            audio, language=idioma, beam_size=self.beam, word_timestamps=True,
             condition_on_previous_text=False, vad_filter=False, initial_prompt=prompt,
             hotwords=self.vocabulario)
         return filtrar_segmentos(segmentos)
@@ -888,8 +1045,157 @@ def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabular
     return lineas, etiquetadas
 
 
+# ---------------------------------------------------------------- voces encimadas (versión 3)
+# Cuando dos personas hablan a la vez, la huella del pedazo se parece "un poco" a las dos (0.2-0.4 con
+# cada una) en lugar de mucho a una sola. Eso marca los candidatos; luego el separador (MossFormer2)
+# parte el pedazo en dos pistas y solo se acepta si cada pista resulta ser de una persona distinta.
+ENCIMADO_MIN_S = 1.0       # duración mínima de un encimado que vale la pena separar
+ENCIMADO_MAX_S = 9.0       # el separador trabaja con pedazos de hasta ~10 s
+
+
+def candidatos_encimados(x, galeria, ident, paso=0.5):
+    """[(inicio, fin)] en segundos donde dos personas enroladas parecen hablar al mismo tiempo."""
+    if len(galeria.nombres) < 2:
+        return []
+    voz = mascara_voz(x)
+    niv = galeria.niveles()
+    centros = np.arange(0.5, len(x) / SR - 0.5, paso)
+    marcas = []
+    for lote in range(0, len(centros), 64):
+        cs = centros[lote:lote + 64]
+        trozos, usar = [], []
+        for c in cs:
+            a, b = int((c - 0.5) * SR), int((c + 0.5) * SR)
+            usar.append(voz[a:b].mean() >= 0.6)
+            trozos.append(x[a:b])
+        P = ident.embeddings_lote(trozos) @ galeria.centroides.T - niv
+        for p, u in zip(P, usar):
+            dos = np.sort(p)[-2:]
+            marcas.append(bool(u and dos[0] > 0.0))       # la segunda más parecida también pasa su umbral
+    marcas = np.array(marcas)
+    # se suaviza: cuenta como encimado si al menos la mitad de las ventanas vecinas lo marcan
+    suave = np.convolve(marcas.astype(float), np.ones(3) / 3, mode="same") >= 0.5
+    regiones, ini = [], None
+    for c, m in zip(centros, suave):
+        if m and ini is None:
+            ini = c - paso / 2
+        elif not m and ini is not None:
+            regiones.append([ini, c - paso / 2])
+            ini = None
+    if ini is not None:
+        regiones.append([ini, centros[-1] + paso / 2])
+    juntas = []
+    for r in regiones:                        # se juntan las que quedan a menos de 1 s
+        if juntas and r[0] - juntas[-1][1] < 1.0:
+            juntas[-1][1] = r[1]
+        else:
+            juntas.append(r)
+    salida = []
+    for a, b in juntas:
+        a, b = max(0.0, a - 0.4), min(len(x) / SR, b + 0.4)
+        if b - a < ENCIMADO_MIN_S:
+            continue
+        while b - a > ENCIMADO_MAX_S:             # pedazos largos se parten
+            salida.append((a, a + ENCIMADO_MAX_S))
+            a += ENCIMADO_MAX_S - 0.5
+        salida.append((a, b))
+    return salida
+
+
+def candidatos_sin_enrolar(x, galeria, ident, ocupadas, tope_s):
+    """Pedazos con voz donde se pudo encimar alguien que no está enrolado. No hay forma segura de saberlo
+    antes de separar, así que se revisan primero los que menos se parecen a los enrolados, hasta el tope."""
+    if tope_s <= 0:
+        return []
+    voz = mascara_voz(x)
+    niv = galeria.niveles()
+    dur = len(x) / SR
+    pedazos = []
+    for a in np.arange(0.0, dur, ENCIMADO_MAX_S):
+        b = min(a + ENCIMADO_MAX_S, dur)
+        ia, ib = int(a * SR), int(b * SR)
+        if voz[ia:ib].sum() / SR < ENCIMADO_MIN_S:
+            continue
+        if any(min(b, f) - max(a, i) > (b - a) / 2 for i, f in ocupadas):
+            continue
+        trozos = [t for t in quitar_silencios(trocear(x[ia:ib], 1.0, 0.5)) if len(t) == SR]
+        if not trozos:
+            continue
+        duda = float((ident.embeddings_lote(trozos) @ galeria.centroides.T - niv).max(axis=1).mean())
+        pedazos.append((duda, float(a), float(b)))
+    elegidos, usado = [], 0.0
+    for duda, a, b in sorted(pedazos):
+        if usado + (b - a) > tope_s:
+            continue
+        elegidos.append((a, b))
+        usado += b - a
+    return sorted(elegidos)
+
+
+DISTINTAS_MAX = 0.35       # si las dos pistas se parecen más que esto, es la misma voz y la otra es puro residuo
+VOZ_MIN_PISTA = 1.0        # segundos de voz que debe tener una pista para contar como otra persona
+PALABRAS_MIN_PISTA = 3     # y palabras que Whisper le debe entender
+RELACION_MIN = 0.05        # si una pista suena menos de esto contra la otra, no hay una segunda voz
+
+
+def _texto_pista(asr, p, beam, prompt):
+    segmentos, _ = asr.transcribe(nivelar_volumen(p), language="es", beam_size=beam, word_timestamps=True,
+                                  vad_filter=True, condition_on_previous_text=False, initial_prompt=prompt)
+    return filtrar_segmentos(segmentos)
+
+
+def separar_encimados(x, regiones, separador, galeria, ident, asr, beam, prompt, al_avance=None, sep=None):
+    """Separa cada región en dos pistas, ve de quién es cada una y la transcribe.
+    regiones: [(inicio, fin, abierta)]. En las abiertas se acepta que la segunda voz no esté enrolada.
+    Regresa [(inicio, fin, {nombre: [(ini, fin, palabra), ...]})] solo de las regiones confirmadas."""
+    niv = galeria.niveles()
+    confirmadas = []
+    for i, (a, b, abierta) in enumerate(regiones):
+        if al_avance:
+            al_avance("Separando voces encimadas", i / len(regiones))
+        pistas = separador.separar(x[int(a * SR):int(b * SR)])
+        datos = []
+        for p in pistas:
+            trozos = [t for t in quitar_silencios(trocear(p, 1.0, 0.5)) if len(t) == SR]
+            if trozos:
+                E = ident.embeddings_lote(trozos)
+                datos.append({"audio": p, "huella": normalizar(E.mean(axis=0)), "P": (E @ galeria.centroides.T).mean(0) - niv})
+        if len(datos) < 2:
+            continue
+        datos.sort(key=lambda d: -float(d["P"].max()))     # primero la pista que más se parece a alguien
+        fuerte, debil = datos
+        k1, k2 = int(np.argmax(fuerte["P"])), int(np.argmax(debil["P"]))
+        if fuerte["P"][k1] <= 0:
+            continue                           # ninguna es de alguien enrolado: se queda como estaba
+        duenos = {galeria.nombres[k1]: fuerte["audio"]}
+        if k2 != k1 and debil["P"][k2] > 0:
+            duenos[galeria.nombres[k2]] = debil["audio"]
+        elif abierta and float(fuerte["huella"] @ debil["huella"]) < DISTINTAS_MAX \
+                and getattr(separador, "relacion", 1.0) >= RELACION_MIN \
+                and mascara_voz(debil["audio"]).sum() / SR >= VOZ_MIN_PISTA:
+            ws = _texto_pista(asr, debil["audio"], beam, prompt)
+            if len(ws) < PALABRAS_MIN_PISTA:
+                continue
+            nombre = sep._grupo_desconocido(debil["huella"], b - a) if sep is not None else "Desconocido"
+            ws_fuerte = _texto_pista(asr, fuerte["audio"], beam, prompt)
+            if ws_fuerte:
+                confirmadas.append((a, b, {galeria.nombres[k1]: [(a + i0, a + f0, w) for i0, f0, w in ws_fuerte],
+                                           nombre: [(a + i0, a + f0, w) for i0, f0, w in ws]}))
+            continue
+        if len(duenos) < 2:
+            continue                           # no se confirmó: se queda como estaba
+        palabras = {}
+        for nombre, p in duenos.items():
+            palabras[nombre] = [(a + i0, a + f0, w) for i0, f0, w in _texto_pista(asr, p, beam, prompt)]
+        if all(palabras.values()):
+            confirmadas.append((a, b, palabras))
+    if al_avance:
+        al_avance("Separando voces encimadas", 1.0)
+    return confirmadas
+
+
 def refinar_grupos(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabulario=None, progreso=True,
-                   al_avance=None):
+                   al_avance=None, separador=None, abierto=False, tope_s=None, stats=None):
     """Pasada final: separa hablantes por tramo de voz y transcribe por bloques. Regresa las
     intervenciones ya unidas (dicts con nombre, inicio, fin, texto, solape) y los grupos crudos."""
     import torch
@@ -921,11 +1227,62 @@ def refinar_grupos(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabula
                                        al_avance=(lambda f: al_avance("Transcribiendo", f)) if al_avance else None)
     if not tramos or not palabras:
         return [], []
-    grupos = agrupar(palabras, tramos)
+    encimados = []
+    if separador is not None:
+        regiones = [(a, b, False) for a, b in candidatos_encimados(x, galeria, ident)]
+        tope = float("inf") if tope_s is None else tope_s
+        elegidas, usado = [], 0.0
+        for r in regiones:                    # las de dos enrolados van primero
+            if usado + r[1] - r[0] <= tope:
+                elegidas.append(r)
+                usado += r[1] - r[0]
+        if abierto:
+            ocupadas = [(a, b) for a, b, _ in elegidas]
+            restante = 1e9 if tope == float("inf") else tope - usado
+            elegidas += [(a, b, True) for a, b in candidatos_sin_enrolar(x, galeria, ident, ocupadas, restante)]
+            elegidas.sort()
+        if elegidas:
+            encimados = separar_encimados(nivelado, elegidas, separador, galeria, ident, asr, beam, prompt_base(),
+                                          al_avance, sep)
+        if stats is not None:
+            stats["candidatos"] = len(elegidas)
+            stats["separados"] = len(encimados)
+            stats["s_revisados"] = sum(b - a for a, b, _ in elegidas)
+            stats["s_separados"] = sum(b - a for a, b, _ in encimados)
+        if progreso:
+            print(f"  Voces encimadas: {len(elegidas)} candidatas, {len(encimados)} separadas.")
+    grupos = []
+    if encimados:
+        # las palabras de esos pedazos se cambian por las de cada voz separada, y lo de antes y lo de
+        # después de cada encimado se agrupa por separado (para que no quede en una sola línea)
+        cortes = sorted((a, b) for a, b, _ in encimados)
+        pedazos, actual, j = [], [], 0
+        for w in palabras:
+            medio = (w[0] + w[1]) / 2
+            while j < len(cortes) and medio >= cortes[j][1]:
+                j += 1
+                pedazos.append(actual)
+                actual = []
+            if j < len(cortes) and cortes[j][0] <= medio < cortes[j][1]:
+                continue
+            actual.append(w)
+        pedazos.append(actual)
+        for pedazo in pedazos:
+            if pedazo:
+                grupos += agrupar(pedazo, tramos)
+    elif palabras:
+        grupos = agrupar(palabras, tramos)
+    for a, b, por_persona in encimados:
+        for nombre, ws in por_persona.items():
+            grupos.append({"inicio": ws[0][0], "fin": ws[-1][1], "nombre": nombre,
+                           "texto": quitar_repetidos("".join(w for _, _, w in ws).strip()), "scores": [1.0], "score": 1.0,
+                           "solape": True, "palabras": ws, "separado": True})
+    grupos.sort(key=lambda g: g["inicio"])
     # juntar intervenciones seguidas de la misma persona si la pausa es corta (texto más legible)
     unidos = []
     for g in grupos:
-        if unidos and unidos[-1]["nombre"] == g["nombre"] and g["inicio"] - unidos[-1]["fin"] < 1.0:
+        if (unidos and unidos[-1]["nombre"] == g["nombre"] and g["inicio"] - unidos[-1]["fin"] < 1.0
+                and not g.get("separado") and not unidos[-1].get("separado")):
             u = unidos[-1]
             u["fin"], u["texto"] = g["fin"], u["texto"] + " " + g["texto"]
             u["solape"] = u["solape"] or g["solape"]

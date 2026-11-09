@@ -1,0 +1,4 @@
+Código de la red MossFormer2 para separar dos voces (16 kHz), copiado tal cual de ClearerVoice-Studio
+(https://github.com/modelscope/ClearerVoice-Studio, licencia Apache-2.0), carpeta clearvoice/models/mossformer2_ss.
+Único cambio: se quitó la importación de torchinfo, que solo servía para imprimir un resumen.
+Los pesos entrenados se descargan con descargar_separadores.py (modelos/mossformer2-ss-16k).

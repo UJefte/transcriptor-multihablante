@@ -1,4 +1,4 @@
-# Transcriptor multihablante en español (versión 2.2)
+# Transcriptor multihablante en español (versión 3)
 
 Escucha una conversación por el micrófono, identifica quién habla y escribe la transcripción casi al momento en un TXT:
 
@@ -10,11 +10,35 @@ Escucha una conversación por el micrófono, identifica quién habla y escribe l
 
 Al terminar puede generar una **transcripción final** más precisa (`_final.txt`), procesando toda la grabación con su contexto completo y, si quieres, con un modelo más grande.
 
+## Versión 3: lo que hay que saber para probarla
+
+**Antes de grabar en Windows:** apaga las "mejoras de audio" y el control automático de volumen del micrófono (Configuración › Sistema › Sonido › tu micrófono). Si están prendidas, el volumen cambia solo y la app reconoce peor las voces.
+
+**Enrolar.** Cada quien se enrola una vez, en la misma laptop y a la distancia de la mesa donde va a grabar. Son 10 tomas. En "Emoción" y "Voz fuerte" hay que alejarse un metro. Si las barritas se ponen rojas o sale "Muy fuerte", repite la toma. El ejecutable nunca trae voces: cada quien empieza de cero.
+
+**Conversación.** Toca los nombres de arriba para quitar a quien no está en la plática; así la app no se confunde con esa voz. También se puede cambiar en Personas. Mientras graba puedes usar "Descartar" para borrar la grabación, y mientras procesa puedes usar "Cancelar".
+
+**Al terminar de grabar** (se elige en Ajustes):
+
+| Modo | Qué hace |
+| --- | --- |
+| Rápido | Se queda con lo que salió en vivo |
+| Mejorado | Vuelve a transcribir todo con más precisión, sin separar voces |
+| Completo | Además separa las voces encimadas |
+
+Completo revisa como máximo el 30 % del audio (o 20 segundos si la grabación es corta), porque separar es lo más tardado. El tiempo estimado aparece después de la primera grabación, porque se mide en cada equipo.
+
+**Separar voces.** Abre un audio de hasta 9.5 segundos con dos personas hablando a la vez y deja oír cada voz por separado. Las voces que no están enroladas salen como "Desconocido".
+
+**Métricas.** Cada grabación se agrega a `transcripciones/metricas.csv` (tiempos por etapa, encimados, porcentaje de dudosos y desconocidos, tiempo de habla y atraso en vivo). En Personas, el botón "Medir" crea `transcripciones/metricas_personas.csv`. En Ajustes › Avanzado está "Probar micrófono".
+
+**Límites conocidos.** Hay que enrolar a todas las personas que van a hablar: alguien sin enrolar puede salir con el nombre de otra persona parecida. Con un solo micrófono la separación nunca queda perfecta.
+
 ## Qué cambió en la versión 2.2 (2 de noviembre)
 
 Problema: con una sola persona hablando, partes de sus frases salían como «Desconocido».
 
-- **Umbral por persona.** Antes había un solo umbral para todos (0.58), y lo subían mamá y Naomi porque sus voces se parecen entre sí (0.59). A Uriel, cuya voz es muy distinta a las demás (0.22), se le exigía lo mismo. Ahora cada persona tiene su propio umbral, calibrado con ventanas de 1 s (las mismas que usa la separación). Al abrir la app, una galería vieja se recalcula sola; en consola: `python transcriptor.py galeria`.
+- **Umbral por persona.** Antes había un solo umbral para todos (0.58), y lo subían Isabel y Naomi porque sus voces se parecen entre sí (0.59). A Uriel, cuya voz es muy distinta a las demás (0.22), se le exigía lo mismo. Ahora cada persona tiene su propio umbral, calibrado con ventanas de 1 s (las mismas que usa la separación). Al abrir la app, una galería vieja se recalcula sola; en consola: `python transcriptor.py galeria`.
 - **Las ventanas sin voz ya no cuentan.** Los tramos de silencio al final de cada frase no se parecen a nadie; ahora el detector de voz los descarta y ahí se queda quien venía hablando.
 - **Frases en vivo de hasta 8 s, con pausa de 0.6 s para cerrarlas** (antes 6 s y 0.5 s): Whisper ve frases más completas.
 - La app guarda sola la versión final en `transcripciones/<sesion>_final.txt`.
@@ -25,11 +49,11 @@ Medido con las grabaciones del 17, 20, 27 y 31 de octubre:
 | --- | --- | --- |
 | Tiempo atribuido a Uriel en 4 grabaciones donde solo habla él | 43 % a 91 % | 100 % en las 4 |
 | Conversaciones armadas con audio que no se usó para la huella, 3 personas enroladas | 86.0 % | 89.9 % |
-| Igual, con mamá sin enrolar (debe salir «Desconocido») | 69.0 % | 68.1 % |
+| Igual, con Isabel sin enrolar (debe salir «Desconocido») | 69.0 % | 68.1 % |
 | Igual, solo Uriel y Naomi | 98.2 % | 98.5 % |
 | Error de palabras en vivo, lectura del 27 de octubre (Whisper `small`, CPU) | 16.7 % | 14.6 % |
 
-Lo que sigue limitando: distinguir a una persona no enrolada de otra enrolada con voz parecida (mamá contra Naomi, 68 %), y las palabras sueltas o cantadas, que no tienen contexto para Whisper. La versión final siempre es más precisa que la de en vivo.
+Lo que sigue limitando: distinguir a una persona no enrolada de otra enrolada con voz parecida (Isabel contra Naomi, 68 %), y las palabras sueltas o cantadas, que no tienen contexto para Whisper. La versión final siempre es más precisa que la de en vivo.
 
 ## Qué cambió en la versión 2
 

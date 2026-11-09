@@ -5,3 +5,10 @@ voces/
 transcripciones/
 pruebas/*.wav
 galeria.npz
+build/
+dist/
+construccion.log
+*.log
+para_laptop_mama/
+ajustes.json
+respaldo_v2.2/
