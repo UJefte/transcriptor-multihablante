@@ -10,6 +10,28 @@ Escucha una conversación por el micrófono, identifica quién habla y escribe l
 
 Al terminar puede generar una **transcripción final** más precisa (`_final.txt`), procesando toda la grabación con su contexto completo y, si quieres, con un modelo más grande.
 
+## Estructura de la carpeta
+
+```
+transcriptor/
+├── app.py                  interfaz (lo que se abre con Transcriptor.bat)
+├── motor.py                une la interfaz con el modelo
+├── transcriptor.py         el modelo: quién habla y qué dijo
+├── separador.py            separa dos voces encimadas
+├── traductor.py            traduce el inglés que no es vocabulario técnico
+├── diagnostico.py          datos del equipo y paquete de pruebas
+├── mossformer2_ss/         red MossFormer2 (ClearerVoice-Studio, Apache-2.0)
+├── vocabulario*.txt, correcciones.txt, idiomas.json, icono.ico
+├── requirements.txt, transcriptor.spec, construir_exe.bat, Transcriptor.bat
+├── herramientas/           descargar modelos y probar el micrófono
+├── evaluacion/             scripts, audios y textos para medir el error
+├── docs/                   documentos de los avances
+├── modelos/                pesos de los modelos (no se suben a GitHub)
+└── dist/                   el ejecutable ya construido (no se sube a GitHub)
+```
+
+Al correr desde el código, la app guarda aquí mismo `voces/`, `transcripciones/`, `galeria.npz` y `ajustes.json`. El ejecutable los guarda en `%LOCALAPPDATA%\TranscriptorMultihablante`. Nada de eso se sube a GitHub.
+
 ## Versión 3: lo que hay que saber para probarla
 
 **Antes de grabar en Windows:** apaga las "mejoras de audio" y el control automático de volumen del micrófono (Configuración › Sistema › Sonido › tu micrófono). Si están prendidas, el volumen cambia solo y la app reconoce peor las voces.
@@ -119,14 +141,14 @@ Los comandos de consola de abajo siguen funcionando igual.
 ## Uso
 
 ```
-python probar_microfono.py                          # el micrófono sí capta sonido
+python herramientas\probar_microfono.py                          # el micrófono sí capta sonido
 python transcriptor.py enrolar --nombre Uriel       # cada persona, 40 s, SOLO habla ella
 python transcriptor.py vivo                         # escuchar y transcribir; Ctrl+C para terminar
 python transcriptor.py vivo --final                 # ...y al terminar genera la versión final
 python transcriptor.py refinar transcripciones\sesion_XXXX.wav                       # versión final de una sesión
 python transcriptor.py refinar transcripciones\sesion_XXXX.wav --modelo-final large-v3-turbo   # máxima precisión
-python transcriptor.py archivo pruebas\P01.wav      # mismo flujo que en vivo, para evaluar
-python evaluar.py referencias\P01.txt transcripciones\P01_....txt --etiqueta "v2 small"
+python transcriptor.py archivo evaluacion\pruebas\P01.wav      # mismo flujo que en vivo, para evaluar
+python evaluacion\evaluar.py evaluacion\referencias\P01.txt transcripciones\P01_....txt --etiqueta "v2 small"
 ```
 
 ### Vocabulario (opcional)
@@ -145,20 +167,20 @@ En clase decimos "hice el deploy del backend" y no "hice el despliegue del servi
 Para comparar contra el comportamiento anterior se usa `--sin-espanglish`, que apaga las tres cosas.
 
 ### Experimento: ¿cuánto mejora?
-1. Una persona lee en voz alta `pruebas/espanglish_lectura.txt` (unos 3 minutos) con `python transcriptor.py vivo`. Al terminar queda el audio en `transcripciones/`.
+1. Una persona lee en voz alta `evaluacion/pruebas/espanglish_lectura.txt` (unos 3 minutos) con `python transcriptor.py vivo`. Al terminar queda el audio en `transcripciones/`.
 2. Transcribe ese mismo audio con y sin las mejoras:
    ```
    python transcriptor.py refinar transcripciones\sesion_XXXX.wav --modelo-final large-v3-turbo --salida transcripciones\esp_con.txt
    python transcriptor.py refinar transcripciones\sesion_XXXX.wav --modelo-final large-v3-turbo --sin-espanglish --salida transcripciones\esp_sin.txt
    ```
-3. Mide las dos (en `referencias/espanglish.txt` cambia `[Uriel]` por el nombre enrolado de quien leyó):
+3. Mide las dos (en `evaluacion/referencias/espanglish.txt` cambia `[Uriel]` por el nombre enrolado de quien leyó):
    ```
-   python evaluar.py referencias\espanglish.txt transcripciones\esp_sin.txt --etiqueta "sin espanglish" --terminos pruebas\terminos_en_vocabulario.txt --terminos pruebas\terminos_nuevos.txt
-   python evaluar.py referencias\espanglish.txt transcripciones\esp_con.txt --etiqueta "con espanglish" --terminos pruebas\terminos_en_vocabulario.txt --terminos pruebas\terminos_nuevos.txt
+   python evaluacion\evaluar.py evaluacion\referencias\espanglish.txt transcripciones\esp_sin.txt --etiqueta "sin espanglish" --terminos evaluacion\pruebas\terminos_en_vocabulario.txt --terminos evaluacion\pruebas\terminos_nuevos.txt
+   python evaluacion\evaluar.py evaluacion\referencias\espanglish.txt transcripciones\esp_con.txt --etiqueta "con espanglish" --terminos evaluacion\pruebas\terminos_en_vocabulario.txt --terminos evaluacion\pruebas\terminos_nuevos.txt
    ```
 4. Compara el porcentaje de términos bien escritos. `terminos_nuevos.txt` tiene términos que **no** están en el vocabulario técnico: muestra si la mejora sirve también para palabras que el programa no conocía.
 
-Resultados (27 de octubre, una persona, 204 s, `large-v3-turbo` en GPU, `experimento_espanglish.py`; la referencia tiene 33 puntos):
+Resultados (27 de octubre, una persona, 204 s, `large-v3-turbo` en GPU, `evaluacion/experimento_espanglish.py`; la referencia tiene 33 puntos):
 
 | Configuración de la pasada final | Error general | Términos del vocabulario | Términos nuevos | Puntos |
 | --- | --- | --- | --- | --- |
@@ -172,7 +194,7 @@ Resultados (27 de octubre, una persona, 204 s, `large-v3-turbo` en GPU, `experim
 - Por bloques, el audio se corta en tramos de hasta 28 s, cada uno en la pausa más larga disponible, y cada tramo recibe el prompt completo. Además se quitan las repeticiones de 3 o más veces seguidas. Así no hay bucles, la puntuación se conserva en todo el audio y el error es el más bajo.
 - Falta repetir la prueba con más lectores.
 
-Para comparar configuraciones rápido sobre una grabación: `python experimento_espanglish.py transcripciones\sesion_XXXX.wav`
+Para comparar configuraciones rápido sobre una grabación: `python evaluacion\experimento_espanglish.py transcripciones\sesion_XXXX.wav`
 
 El texto tiene 438 palabras y 60 términos en inglés (89 apariciones). No usa números, porque Whisper podría escribir "500" donde se dijo "quinientos" y contaría como error.
 
@@ -210,7 +232,7 @@ En una computadora sin GPU, `large-v3-turbo` es lento para el modo en vivo, pero
 
 **Enrolamiento (cada persona):** 40-60 s con `enrolar`, leyendo el párrafo y luego hablando libre. Mismo micrófono y distancia que en las pruebas, lugar callado. Solo habla la persona que se enrola.
 
-**Conversaciones de prueba** (2 min cada una, un micrófono al centro, guardar en `pruebas/`):
+**Conversaciones de prueba** (2 min cada una, un micrófono al centro, guardar en `evaluacion/pruebas/`):
 
 | Archivo | Situación |
 | --- | --- |
@@ -221,7 +243,7 @@ En una computadora sin GPU, `large-v3-turbo` es lento para el modo en vivo, pero
 | P05_3p_desconocido | 3 enrolados + 1 persona no enrolada |
 | P06_3p_ruido | 3 personas con ruido de fondo |
 
-**Referencias:** por cada prueba, un TXT en `referencias/` escrito a mano: `[Nombre]: lo que dijo`. Los nombres deben ser iguales a los enrolados.
+**Referencias:** por cada prueba, un TXT en `evaluacion/referencias/` escrito a mano: `[Nombre]: lo que dijo`. Los nombres deben ser iguales a los enrolados.
 
 **Evaluación:** correr `archivo` (y `refinar`) + `evaluar.py` con cada configuración; cada resultado se agrega a `resultados.csv`.
 

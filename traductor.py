@@ -10,7 +10,7 @@ español. "is", "the", "anyway" sí; "no", "me", "real", "final" no, porque tamb
 El traductor es el modelo Marian opus-mt-en-es (Helsinki-NLP). Se busca en este orden:
   1. modelos/traductor/            versión convertida a CTranslate2 (rápida, sin internet)
   2. Helsinki-NLP/opus-mt-en-es    con la librería transformers (se descarga la primera vez)
-Para dejar lista la opción 1 en la computadora del equipo: python preparar_traductor.py
+Para dejar lista la opción 1 en la computadora del equipo: python herramientas\\preparar_traductor.py
 """
 import json
 import os
@@ -144,7 +144,7 @@ def cargar():
                 _modelo = _Marian()
             except Exception as e:
                 raise RuntimeError("No se pudo cargar el traductor de inglés a español. Revisa la conexión a "
-                                   f"internet la primera vez, o corre preparar_traductor.py. ({e})")
+                                   f"internet la primera vez, o corre herramientas/preparar_traductor.py. ({e})")
     return _modelo
 
 

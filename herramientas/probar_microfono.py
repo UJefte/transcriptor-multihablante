@@ -3,9 +3,9 @@
 """
 Prueba rápida del micrófono.
 
-  python probar_microfono.py            prueba el micrófono predeterminado de dos formas
-  python probar_microfono.py --todos    prueba TODOS los micrófonos (habla sin parar mientras corre)
-  python probar_microfono.py 3          prueba solo el dispositivo número 3
+  python herramientas\\probar_microfono.py            prueba el micrófono predeterminado de dos formas
+  python herramientas\\probar_microfono.py --todos    prueba TODOS los micrófonos (habla sin parar mientras corre)
+  python herramientas\\probar_microfono.py 3          prueba solo el dispositivo número 3
 """
 import sys
 import numpy as np

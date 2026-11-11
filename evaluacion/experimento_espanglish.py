@@ -5,8 +5,8 @@ Compara configuraciones de Whisper sobre UNA grabación del texto en espanglish 
 No separa hablantes (solo texto), así cada prueba tarda poco.
 
 Uso:
-  python experimento_espanglish.py transcripciones\\sesion_XXXX.wav
-  python experimento_espanglish.py transcripciones\\sesion_XXXX.wav --modelo small
+  python evaluacion\\experimento_espanglish.py transcripciones\\sesion_XXXX.wav
+  python evaluacion\\experimento_espanglish.py transcripciones\\sesion_XXXX.wav --modelo small
 """
 import argparse
 import csv
@@ -15,6 +15,8 @@ import os
 import sys
 import time
 
+AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(AQUI))   # transcriptor.py está en la carpeta de arriba
 import transcriptor as tr
 import evaluar as ev
 
@@ -38,7 +40,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("audio")
     p.add_argument("--modelo", default="large-v3-turbo")
-    p.add_argument("--referencia", default=os.path.join("referencias", "espanglish.txt"))
+    p.add_argument("--referencia", default=os.path.join(AQUI, "referencias", "espanglish.txt"))
     a = p.parse_args()
 
     asr, dev = tr.cargar_whisper(a.modelo, tr.dispositivo_torch())

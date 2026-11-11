@@ -4,7 +4,7 @@
 Compara la transcripción del sistema contra una referencia escrita a mano.
 
 Uso:
-  python evaluar.py referencias/prueba1.txt transcripciones/prueba1.txt --etiqueta "small, umbral 0.40"
+  python evaluacion\\evaluar.py evaluacion\\referencias\\prueba1.txt transcripciones/prueba1.txt --etiqueta "small, umbral 0.40"
 
 Formato de ambos archivos (una línea por intervención; los tiempos son opcionales):
   [Uriel] (00:12 - 00:15): hola, ¿cómo están?

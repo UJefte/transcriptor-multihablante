@@ -3,12 +3,11 @@ __pycache__/
 modelos/
 voces/
 transcripciones/
-pruebas/*.wav
+evaluacion/pruebas/*.wav
 galeria.npz
 build/
 dist/
 construccion.log
 *.log
-para_laptop_mama/
+laptop_pruebas/
 ajustes.json
-respaldo_v2.2/

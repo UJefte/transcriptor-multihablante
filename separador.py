@@ -10,7 +10,7 @@ Solo se usa en los tramos donde ya se detectaron dos voces a la vez, porque es l
 del audio no hace falta. Con un solo micrófono la separación nunca queda perfecta: la meta es no perder
 lo que dijo la segunda persona.
 
-Modelos (se descargan con descargar_separadores.py):
+Modelos (se descargan con herramientas/descargar_separadores.py):
   mossformer2   MossFormer2_SS_16K de ClearerVoice-Studio (Apache-2.0)
   sepformer     SepFormer de SpeechBrain entrenado con ruido y eco (WHAMR!, 16 kHz)
 """

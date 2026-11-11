@@ -2,18 +2,16 @@
 """
 Descarga los modelos para separar voces encimadas y los deja en modelos/ (se corre una sola vez).
 
-    .venv\\Scripts\\python descargar_separadores.py
+    .venv\\Scripts\\python herramientas\\descargar_separadores.py
 
-  modelos/sepformer-whamr16k   SepFormer de SpeechBrain (entrenado con ruido y eco, 16 kHz)
   modelos/mossformer2-ss-16k   MossFormer2 de ClearerVoice-Studio (16 kHz)
 """
 import os
 
 from huggingface_hub import snapshot_download
 
-AQUI = os.path.dirname(os.path.abspath(__file__))
+AQUI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # la carpeta del proyecto
 MODELOS = [
-    ("speechbrain/sepformer-whamr16k", "sepformer-whamr16k"),
     ("alibabasglab/MossFormer2_SS_16K", "mossformer2-ss-16k"),
 ]
 

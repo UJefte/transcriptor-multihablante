@@ -5,7 +5,7 @@ convertido a CTranslate2, para que la app traduzca rápido y sin internet.
 
 Se corre una sola vez en la computadora donde se arma el .exe:
     pip install transformers sentencepiece
-    python preparar_traductor.py
+    python herramientas\\preparar_traductor.py
 """
 import os
 import shutil
@@ -14,7 +14,7 @@ import ctranslate2.converters
 from huggingface_hub import snapshot_download
 
 MODELO = "Helsinki-NLP/opus-mt-en-es"
-DESTINO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "modelos", "traductor")
+DESTINO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "modelos", "traductor")
 
 if __name__ == "__main__":
     print("Descargando", MODELO, "...")

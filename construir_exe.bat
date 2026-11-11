@@ -35,13 +35,13 @@ if exist modelos\mossformer2-ss-16k\mossformer2_ss_16k.pt (
     if not exist "%DEST%\modelos\mossformer2-ss-16k" mkdir "%DEST%\modelos\mossformer2-ss-16k"
     copy /Y modelos\mossformer2-ss-16k\mossformer2_ss_16k.pt "%DEST%\modelos\mossformer2-ss-16k\" >nul
 ) else (
-    echo   AVISO: no esta el separador de voces; corre antes descargar_separadores.py
+    echo   AVISO: no esta el separador de voces; corre antes herramientas\descargar_separadores.py
 )
 
 if exist modelos\traductor\model.bin (
     xcopy /E /I /Y /Q modelos\traductor "%DEST%\modelos\traductor" >nul
 ) else (
-    echo   AVISO: no esta modelos\traductor; para traducir el ingles corre antes preparar_traductor.py
+    echo   AVISO: no esta modelos\traductor; para traducir el ingles corre antes herramientas\preparar_traductor.py
 )
 
 if /I "%~1"=="completo" (
