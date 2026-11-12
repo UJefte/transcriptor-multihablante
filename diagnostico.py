@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Datos del equipo y paquete para soporte.
+Datos del equipo y paquete de pruebas.
 
-Sirve para que, cuando la app se prueba en otra computadora, sea fácil saber en qué se corrió
-(procesador, memoria, tarjeta gráfica, versiones) y mandar los archivos de una prueba en un solo .zip.
-
-El paquete NO lleva las voces enroladas. La última grabación solo se incluye si la persona lo elige.
+Junta en un .zip los datos de la computadora y de una prueba, para saber en qué se corrió.
+No lleva voces; la última grabación solo va si la persona quiere.
 """
 import datetime
 import glob

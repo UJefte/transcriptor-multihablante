@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Transcriptor multihablante v3 — aplicación de escritorio (interfaz con CustomTkinter).
+Transcriptor multihablante v4 - la app de escritorio.
 
-  python app.py              con el motor real (micrófono, SpeechBrain y Whisper)
-  python app.py --simulado   sin modelos ni micrófono, para trabajar en la interfaz
+  python app.py              normal, con micrófono y modelos
+  python app.py --simulado   sin modelos, para probar solo la interfaz
 
-Secciones:
-  Conversación   grabar y ver quién dijo qué en vivo; al terminar, versión final más precisa
-  Separar voces  abrir un audio corto donde dos personas hablan a la vez y oír cada voz por separado
-  Personas       quién está enrolado, probar una voz y ver qué tanto se parecen las voces
-  Ajustes        lugar donde se graba, traducir el inglés y opciones avanzadas
-  (Enrolar)      pantalla aparte, paso a paso, que se abre desde Personas
+Pantallas: Conversación, Separar voces (para la demo), Personas, Ajustes y Enrolar.
 """
 import os
 import queue
@@ -22,9 +17,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox
 
-# Como .exe (PyInstaller): el programa y los modelos van en la carpeta de Transcriptor.exe, pero los datos
-# de cada usuario (voces, galería, grabaciones, ajustes) van en %LOCALAPPDATA%\TranscriptorMultihablante.
-# Así la carpeta del .exe se puede copiar a otra computadora sin llevarse los enrolamientos de nadie.
+# Como .exe: el programa va junto a Transcriptor.exe, pero los datos de cada quien (voces,
+# grabaciones, ajustes) van en %LOCALAPPDATA%. Así el .exe se pasa a otra compu sin llevarse voces.
 CONGELADA = getattr(sys, "frozen", False)
 AQUI = os.path.dirname(sys.executable) if CONGELADA else os.path.dirname(os.path.abspath(__file__))
 INTERNO = getattr(sys, "_MEIPASS", AQUI)
@@ -66,7 +60,7 @@ try:
 except ImportError:          # sin Pillow la app funciona igual, solo sin íconos
     Image = ImageDraw = None
 
-# ------------------------------------------------------------------ colores (los mismos de la propuesta visual)
+# ------------------------------------------------------------------ colores
 C = {
     "fondo": "#F6F6F3", "tarjeta": "#FFFFFF", "borde": "#E7E6E1", "linea": "#EFEEEA",
     "texto": "#1B1B1A", "texto2": "#3D3C38", "suave": "#55544F", "tenue": "#6B6A64", "apagado": "#A3A29B",
@@ -95,7 +89,7 @@ def mmss(seg):
     return f"{seg // 60:02d}:{seg % 60:02d}"
 
 
-# ------------------------------------------------------------------ íconos dibujados con Pillow
+# ------------------------------------------------------------------ íconos (dibujados con Pillow)
 def _icono(nombre, color, tam=18):
     """Íconos de línea sencillos (como los de la propuesta). Se dibujan grandes y se reducen para que se vean finos."""
     if Image is None:
@@ -373,8 +367,8 @@ def boton(padre, texto, comando, tipo="secundario", **kw):
 
 
 def ajustar_texto(etiqueta, contenedor, margen=40, maximo=None):
-    """El texto se parte en renglones según el ancho real del contenedor. Con un ancho fijo, en pantallas
-    con escala de Windows (125 %, 150 %) el texto se salía de la tarjeta."""
+    """Parte el texto en renglones según el ancho real de la tarjeta.
+    Con un ancho fijo se salía cuando Windows tiene la escala en 125 % o 150 %."""
     estado = {"pendiente": None, "ancho": None}
 
     def aplicar():
@@ -501,7 +495,7 @@ class App(ctk.CTk):
                 self.iconbitmap(default=icono)
             except tk.TclError:
                 pass
-        # tamaño de la ventana según la pantalla (con escala de Windows una laptop chica no alcanza 1200x780)
+        # tamaño de la ventana según la pantalla
         escala = ctk.ScalingTracker.get_window_scaling(self)
         ancho_pant, alto_pant = self.winfo_screenwidth() / escala, self.winfo_screenheight() / escala
         ancho, alto = int(min(1200, ancho_pant * 0.94)), int(min(780, alto_pant * 0.86))
@@ -576,7 +570,7 @@ class App(ctk.CTk):
         self.q.put((lambda: funcion(*args, **kwargs), ()))
 
     def _bombear(self):
-        # por tandas: si llegan muchas cosas juntas la ventana no se traba, lo demás va en la siguiente vuelta
+        # de a poquito, para que la ventana no se trabe
         limite = time.perf_counter() + 0.03
         try:
             while time.perf_counter() < limite:
@@ -634,7 +628,7 @@ class App(ctk.CTk):
                          corner_radius=6, height=22).pack(anchor="w", padx=12, pady=(12, 0))
         self.lbl_entorno = ctk.CTkLabel(pie, text=self.motor.perfil()["nombre"], font=self.F["negrita"],
                                         text_color=C["texto"])
-        # en pantallas muy bajitas (laptop con escala al 150 %) no cabe todo: el entorno se ve en Ajustes
+        # en pantallas muy chicas no cabe; el entorno se ve en Ajustes
         escala = ctk.ScalingTracker.get_window_scaling(self)
         if self.winfo_screenheight() / escala >= 560:
             ctk.CTkLabel(pie, text="Entorno", font=self.F["mini"], text_color=C["tenue"]).pack(anchor="w", padx=14,
@@ -2658,8 +2652,8 @@ class PaginaEnrolar(Pagina):
 
 
 def usar_entorno_virtual():
-    """Si se abrió con el Python del sistema y existe .venv, se vuelve a abrir con el Python de .venv
-    (así funciona aunque se olvide activar el entorno, o con doble clic en Transcriptor.bat)."""
+    """Si se abrió con el Python del sistema, se vuelve a abrir con el de .venv
+    (por si se olvida activar el entorno o se abre con doble clic)."""
     if CONGELADA or sys.prefix != sys.base_prefix:
         return
     for partes in ((".venv", "Scripts", "python.exe"), (".venv", "bin", "python")):

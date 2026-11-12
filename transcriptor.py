@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Transcriptor multihablante en español - versión 2
-Enrolamiento de voces + separación de hablantes (ventanas solapadas + Viterbi)
-+ transcripción casi en tiempo real + pasada final de alta precisión.
+Transcriptor multihablante en español - versión 4 (el modelo).
 
-Comandos:
-  python transcriptor.py dispositivos               Lista los micrófonos disponibles
-  python transcriptor.py enrolar --nombre Uriel     Graba una muestra de voz y actualiza la galería
-  python transcriptor.py galeria                    Recalcula la galería con todo lo que hay en voces/
-  python transcriptor.py vivo                       Escucha el micrófono y transcribe casi al momento
-  python transcriptor.py vivo --final               ...y al terminar genera la transcripción final mejorada
-  python transcriptor.py refinar sesion.wav         Transcripción final de alta precisión de un audio grabado
-  python transcriptor.py archivo prueba.wav         Procesa un audio con el mismo flujo que "vivo" (para evaluar)
+Reconoce a las personas enroladas por su huella de voz, transcribe con Whisper
+y separa a dos personas cuando hablan al mismo tiempo. También se usa sin la app:
+
+  python transcriptor.py dispositivos            lista los micrófonos
+  python transcriptor.py enrolar --nombre Uriel  graba la voz de alguien
+  python transcriptor.py galeria                 recalcula las huellas con lo que hay en voces/
+  python transcriptor.py vivo [--final]          transcribe del micrófono
+  python transcriptor.py refinar sesion.wav      versión final de un audio
+  python transcriptor.py archivo prueba.wav      igual que en vivo pero con un audio (para medir)
 """
 import argparse
 import datetime
@@ -139,9 +138,8 @@ def normalizar(v):
 
 
 def nivelar_volumen(x, pico_minimo=0.1, pico_objetivo=0.3, max_ganancia=10.0):
-    """Sube el volumen SOLO si la voz llega baja (voces lejanas o bocina), para que Whisper no la ignore.
-    El audio con volumen normal no se toca: en las pruebas, amplificarlo empeoró la transcripción.
-    Usa el pico (no el promedio) para que los silencios no disparen la ganancia y saturen la voz."""
+    """Sube el volumen solo si la voz llega bajita, para que Whisper no la ignore.
+    Si ya se oye bien no se toca, porque en las pruebas subirle lo empeoraba."""
     if len(x) == 0:
         return x.astype(np.float32)
     pico = float(np.percentile(np.abs(x), 99.5)) + 1e-9
@@ -184,8 +182,8 @@ def _lineas_utiles(ruta):
 
 
 def leer_vocabulario(nombres):
-    """Nombres enrolados + vocabulario.txt + vocabulario_tecnico.txt, para que Whisper los escriba bien.
-    (Whisper usa como máximo unas 220 piezas de palabra: si la lista es muy larga, se recorta el final.)"""
+    """Nombres enrolados y palabras de los vocabularios, para que Whisper las escriba bien
+    (si la lista es muy larga se recorta, porque Whisper no acepta tanto)."""
     palabras = list(nombres) + _lineas_utiles(ARCHIVO_VOCABULARIO)
     if ESPANGLISH["activo"]:
         palabras += _lineas_utiles(ARCHIVO_VOCAB_TECNICO)
@@ -320,7 +318,7 @@ def cargar_whisper(nombre, dispositivo, quiet=False):
     if nombre is None:
         nombre = "large-v3-turbo" if gpu else "small"
     intentos = ([("cuda", "float16")] if gpu else []) + [("cpu", "int8")]
-    # si el modelo está copiado en modelos/whisper/<nombre> (p. ej. junto al .exe), se usa sin descargar
+    # si el modelo ya está en modelos/whisper/<nombre> (junto al .exe), no se descarga
     local = os.path.join(CARPETA_MODELOS, "whisper", nombre)
     origen = local if os.path.exists(os.path.join(local, "model.bin")) else nombre
     for dev, tipo in intentos:
@@ -380,8 +378,7 @@ class Galeria:
         np.savez(ruta, nombres=np.array(self.nombres), centroides=self.centroides, umbral=self.umbral, **extra)
 
     def niveles(self, umbral=None):
-        """Similitud mínima de una ventana de 1 s para aceptar a cada persona. Si se pasa --umbral
-        (o la galería es vieja), se usa un solo valor para todos, como antes."""
+        """Parecido mínimo para aceptar a cada persona (o uno solo para todos si así se pide)."""
         if self.umbrales is None or (umbral is not None and abs(umbral - self.umbral) > 1e-6):
             base = self.umbral if umbral is None else umbral
             return np.full(len(self.nombres), base - AJUSTE_UMBRAL, dtype=np.float32)
@@ -461,8 +458,8 @@ AJENO_TIPICO = 0.22   # parecido alto (P90) de una voz ajena contra una huella, 
 
 
 def umbrales_por_persona(embs1, nombres, centroides):
-    """Umbral de cada persona con ventanas de 1 s (las mismas que usa la separación): punto medio
-    entre sus propias ventanas más bajas (P10) y las ventanas ajenas que más se le parecen (P90)."""
+    """Umbral de cada persona: el punto medio entre sus ventanas más bajas
+    y las de otras personas que más se le parecen."""
     umbrales = []
     for i, n in enumerate(nombres):
         propio = np.percentile(embs1[n] @ centroides[i], 10)
@@ -470,9 +467,8 @@ def umbrales_por_persona(embs1, nombres, centroides):
         if ajenas:
             u = (propio + np.percentile(np.concatenate(ajenas), 90)) / 2
         else:
-            # una sola persona enrolada: no hay voces ajenas con qué comparar, así que se usa lo que
-            # medimos en las pruebas (una voz ajena rara vez pasa de ~0.22 de parecido). Antes se usaba
-            # propio - 0.15 y el umbral quedaba tan bajo que hasta la voz de un video salía con su nombre.
+            # con una sola persona no hay con quién comparar, así que se usa lo que medimos
+            # en las pruebas: una voz ajena casi nunca pasa de 0.22
             u = (propio + AJENO_TIPICO) / 2
         umbrales.append(float(np.clip(u, 0.25, 0.6)))
     return np.array(umbrales, dtype=np.float32)
@@ -601,13 +597,11 @@ def viterbi(E, penal, inicial=None):
 
 
 class Separador:
-    """Decide quién habla en cada momento de una frase.
+    """Decide quién habla en cada momento.
 
-    1. Huellas de voz en ventanas de 1 s cada 0.25 s (solapadas).
-    2. Cada paso de 0.25 s promedia la similitud de las ventanas que lo cubren.
-    3. Viterbi elige la secuencia de hablantes más probable con un costo por cambiar,
-       así un ruido aislado no corta el turno y los fragmentos cortos heredan el hablante correcto.
-    4. Los tramos que no se parecen a nadie se agrupan por voz: Desconocido 1, Desconocido 2...
+    Saca la huella de pedazos de 1 s cada 0.25 s, los compara con cada persona y con Viterbi
+    escoge la secuencia más probable, así un ruido no corta el turno. Lo que no se parece a
+    nadie sale como Desconocido 1, Desconocido 2...
     """
 
     def __init__(self, ident, galeria, umbral, margen=0.05, agrupar_desconocidos=True):
@@ -629,9 +623,8 @@ class Separador:
 
     @staticmethod
     def _con_voz(audio, vent):
-        """Qué ventanas tienen voz en al menos la mitad de su duración (según el detector de voz).
-        Las frases en vivo terminan con ~0.5 s de silencio; sin este filtro esas ventanas no se
-        parecían a nadie y la última palabra salía como «Desconocido»."""
+        """Ventanas que tienen voz en al menos la mitad. Sin esto, el silencio del final
+        de cada frase salía como Desconocido."""
         mascara = mascara_voz(audio)
         ok = np.array([mascara[a:b].mean() >= 0.5 for a, b in vent])
         return ok if ok.any() else np.ones(len(vent), dtype=bool)
@@ -744,10 +737,8 @@ FIN_ORACION = (".", "?", "!", "…")
 
 
 def unir_fragmentos(grupos, max_palabras=2, max_hueco=0.3):
-    """Una o dos palabras sueltas que continúan una oración (sin punto de por medio y con la
-    siguiente palabra en minúscula, p. ej. 'Ni' + 'tú ni Naomi...') se quedan con el hablante
-    del resto de la oración. Las respuestas cortas reales ('Sí.', '¿Qué?') tienen su propia
-    puntuación y no se tocan."""
+    """Si una o dos palabras sueltas continúan la oración de otro ('Ni' + 'tú ni...'),
+    se quedan con quien dijo el resto. Las respuestas cortas como 'Sí.' no se tocan."""
     def continua(a, b):
         return (not a["texto"].endswith(FIN_ORACION) and b["texto"][:1].islower()
                 and b["inicio"] - a["fin"] < max_hueco)
@@ -795,9 +786,8 @@ def _norm(w):
 
 
 def quitar_repeticiones(palabras, max_n=6, veces=3):
-    """Red de seguridad contra bucles de Whisper: si un grupo de 1 a 6 palabras se repite 3 veces
-    o más seguidas ("en la tarde, en la tarde, en la tarde..."), deja solo la primera. Dos
-    repeticiones ("hola, hola") se respetan porque la gente sí habla así."""
+    """Si Whisper se cicla y repite lo mismo 3 veces o más, deja solo una.
+    Dos veces sí se respeta ('hola, hola'), porque la gente sí habla así."""
     norm = [_norm(w) for _, _, w in palabras]
     salida, i = [], 0
     while i < len(palabras):
@@ -822,9 +812,8 @@ def quitar_repeticiones(palabras, max_n=6, veces=3):
 
 
 def bloques_de_voz(x, max_s=28.0, min_s=12.0):
-    """Corta el audio en bloques de hasta max_s segundos (Whisper ve 30 s a la vez). Cada corte va
-    en la pausa MÁS LARGA disponible después de min_s, para no partir oraciones; si alguien habla
-    sin pausas más de max_s, se corta en el instante más callado. Devuelve [(inicio, fin)] en muestras."""
+    """Corta el audio en bloques de hasta max_s segundos, siempre en la pausa más larga
+    para no partir oraciones. Regresa [(inicio, fin)] en muestras."""
     import torch
     from silero_vad import load_silero_vad, get_speech_timestamps
     regiones = get_speech_timestamps(torch.from_numpy(np.ascontiguousarray(x, dtype=np.float32)), load_silero_vad(),
@@ -859,9 +848,8 @@ def bloques_de_voz(x, max_s=28.0, min_s=12.0):
 
 
 def transcribir_por_bloques(asr, x, beam, vocabulario=None, prompt=None, arrastre=False, al_avance=None):
-    """Pasada final por bloques: cada bloque recibe el prompt completo (y, con arrastre=True, el
-    final del bloque anterior). Así Whisper mantiene puntos, mayúsculas y términos en inglés en
-    TODO el audio, no solo en los primeros 30 s, sin el arrastre interno que causaba bucles."""
+    """Transcribe por bloques, cada uno con el vocabulario completo, para que la puntuación
+    y los términos en inglés salgan bien en todo el audio y no solo al principio."""
     prompt = prompt or prompt_base()
     palabras, cola, fin_anterior = [], "", None
     bloques = bloques_de_voz(x)
@@ -894,10 +882,8 @@ VOZ_EN_HUECO = 0.8   # ...si el detector oyó al menos esto de voz ahí
 
 
 def rellenar_huecos(asr, x, palabras, beam, prompt):
-    """A veces Whisper se "salta" un pedazo: resume la frase y brinca 2 o 3 segundos de voz
-    (en una prueba se comió "volando en el caché o el build se saltó esa parte"). Aquí se buscan
-    huecos entre palabras donde el detector sí oyó voz, se transcribe solo ese pedazo y se mete
-    lo que salga en su lugar."""
+    """A veces Whisper se brinca un pedazo de voz. Aquí se buscan esos huecos,
+    se transcriben solos y se meten en su lugar."""
     if len(palabras) < 2:
         return palabras
     voz = mascara_voz(x)
@@ -926,10 +912,8 @@ def rellenar_huecos(asr, x, palabras, beam, prompt):
 
 
 # ---------------------------------------------------------------- frases completas en inglés
-# A Whisper se le dice que el audio es español. Si alguien dice una frase entera en inglés, Whisper
-# la "pasa" al español por su cuenta ("Sorry my friend" -> "La historia, mi amigo"). Por eso, en
-# cada frase larga se le pregunta a Whisper qué idioma oye; si está muy seguro de que es inglés,
-# esa frase se transcribe en inglés. Luego la opción "Traducir" decide si se deja así o se traduce.
+# Whisper está en español y si alguien dice una frase en inglés la traduce solo. Aquí se revisa
+# el idioma de cada frase larga y, si seguro es inglés, se deja en inglés.
 INGLES_SEGURO = 0.85     # qué tan seguro debe estar (comparando solo inglés contra español)
 INGLES_MIN_S = 2.0       # con frases más cortas se equivoca seguido, así que se quedan en español
 DETECTAR_INGLES = {"activo": True, "asr": None}   # motor pone aquí el modelo chico para que sea rápido
@@ -1045,10 +1029,9 @@ def refinar_audio(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabular
     return lineas, etiquetadas
 
 
-# ---------------------------------------------------------------- voces encimadas (versión 3)
-# Cuando dos personas hablan a la vez, la huella del pedazo se parece "un poco" a las dos (0.2-0.4 con
-# cada una) en lugar de mucho a una sola. Eso marca los candidatos; luego el separador (MossFormer2)
-# parte el pedazo en dos pistas y solo se acepta si cada pista resulta ser de una persona distinta.
+# ---------------------------------------------------------------- voces encimadas
+# Cuando dos hablan a la vez, el pedazo se parece un poco a los dos en vez de mucho a uno.
+# Esos son los candidatos: se separan con MossFormer2 y solo se acepta si salen dos personas.
 ENCIMADO_MIN_S = 1.0       # duración mínima de un encimado que vale la pena separar
 ENCIMADO_MAX_S = 9.0       # el separador trabaja con pedazos de hasta ~10 s
 
@@ -1103,8 +1086,8 @@ def candidatos_encimados(x, galeria, ident, paso=0.5):
 
 
 def candidatos_sin_enrolar(x, galeria, ident, ocupadas, tope_s):
-    """Pedazos con voz donde se pudo encimar alguien que no está enrolado. No hay forma segura de saberlo
-    antes de separar, así que se revisan primero los que menos se parecen a los enrolados, hasta el tope."""
+    """Pedazos donde pudo encimarse alguien no enrolado. Se revisan primero
+    los que menos se parecen a los enrolados, hasta llegar al tope."""
     if tope_s <= 0:
         return []
     voz = mascara_voz(x)
@@ -1145,9 +1128,8 @@ def _texto_pista(asr, p, beam, prompt):
 
 
 def separar_encimados(x, regiones, separador, galeria, ident, asr, beam, prompt, al_avance=None, sep=None):
-    """Separa cada región en dos pistas, ve de quién es cada una y la transcribe.
-    regiones: [(inicio, fin, abierta)]. En las abiertas se acepta que la segunda voz no esté enrolada.
-    Regresa [(inicio, fin, {nombre: [(ini, fin, palabra), ...]})] solo de las regiones confirmadas."""
+    """Separa cada pedazo en dos pistas, ve de quién es cada una y la transcribe.
+    Solo regresa los pedazos donde de verdad eran dos personas distintas."""
     niv = galeria.niveles()
     confirmadas = []
     for i, (a, b, abierta) in enumerate(regiones):
@@ -1196,11 +1178,10 @@ def separar_encimados(x, regiones, separador, galeria, ident, asr, beam, prompt,
 
 def refinar_grupos(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabulario=None, progreso=True,
                    al_avance=None, separador=None, abierto=False, tope_s=None, stats=None):
-    """Pasada final: separa hablantes por tramo de voz y transcribe por bloques. Regresa las
-    intervenciones ya unidas (dicts con nombre, inicio, fin, texto, solape) y los grupos crudos."""
+    """Versión final: quién habla en cada tramo y su texto, ya juntado por persona."""
     import torch
     from silero_vad import load_silero_vad, get_speech_timestamps
-    # tramos de voz separados por al menos 1 s de silencio: así el Viterbi ve los turnos cortos con contexto
+    # tramos separados por al menos 1 s de silencio, para que Viterbi tenga contexto
     regiones = get_speech_timestamps(torch.from_numpy(x), load_silero_vad(), sampling_rate=SR,
                                      min_silence_duration_ms=1000, speech_pad_ms=100)
     sep = Separador(ident, galeria, umbral, margen)
@@ -1219,8 +1200,7 @@ def refinar_grupos(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabula
     if progreso:
         print("\r  Separando voces... listo.          ")
         print("  Transcribiendo por bloques...")
-    # Bloques de hasta 28 s cortados en pausas, cada uno con el prompt completo y sin arrastrar el texto
-    # anterior. En las pruebas: error 8.7 % (antes 10-23 %), sin bucles y con la puntuación completa.
+    # bloques de hasta 28 s cortados en pausas; en las pruebas el error bajó a 8.7 %
     if al_avance:
         al_avance("Transcribiendo", 0.0)
     palabras = transcribir_por_bloques(asr, nivelado, beam, vocabulario,
@@ -1543,7 +1523,7 @@ def main():
     comun.add_argument("--umbral", type=float, default=None, help="similitud mínima para reconocer a alguien")
     comun.add_argument("--margen", type=float, default=0.05, help="diferencia mínima entre las 2 voces más parecidas")
     comun.add_argument("--beam", type=int, default=None, help="beam de Whisper (más alto = más preciso y lento)")
-    # 8 s y 0.6 s: frases más completas; en la lectura de prueba el error en vivo bajó de 16.7 % a 14.6 %
+    # frases más completas en vivo (el error bajó de 16.7 % a 14.6 %)
     comun.add_argument("--max-seg", type=float, default=8.0, help="duración máxima de cada fragmento (s)")
     comun.add_argument("--silencio-ms", type=int, default=600, help="silencio que cierra una frase (ms)")
     comun.add_argument("--vad", type=float, default=0.5, help="sensibilidad del detector de voz (0-1)")

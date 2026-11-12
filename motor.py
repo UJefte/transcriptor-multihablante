@@ -1,17 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Motor de la app: une la interfaz gráfica con transcriptor.py sin imprimir nada en consola.
+Motor de la app: conecta la interfaz con transcriptor.py.
 
-Dos implementaciones con la MISMA interfaz:
-  Motor          el real (SpeechBrain + Whisper + Silero), el mismo de 'python transcriptor.py ...'
-  MotorSimulado  sin modelos ni micrófono; sirve para trabajar en la interfaz en cualquier PC
-                 (python app.py --simulado)
+Hay dos versiones con las mismas funciones:
+  Motor          el de verdad (micrófono y modelos)
+  MotorSimulado  sin modelos, para probar la interfaz (python app.py --simulado)
 
-Todo lo que tarda (cargar modelos, grabar, transcribir) se llama desde un hilo aparte; los avisos
-hacia la interfaz llegan por la función `al_evento(tipo, datos)`:
-  "linea"  {"nombre", "inicio", "fin", "texto", "solape"}   una intervención nueva
-  "nivel"  {"rms", "hablando"}                               medidor del micrófono
-  "aviso"  "texto"                                           mensaje para mostrar
+Lo que tarda se corre en otro hilo y le avisa a la interfaz con al_evento(tipo, datos).
 """
 import csv
 import datetime
@@ -31,15 +26,9 @@ import separador as sep_voces
 
 SR = tr.SR
 
-# ------------------------------------------------------------------ guion del enrolamiento
-# Los textos se escribieron para que, entre todos, salgan todos los sonidos del español de México
-# (las 5 vocales y los 17 consonánticos, incluidos ñ, ch, ll/y y la rr) y los grupos como pr, tr, bl,
-# fl o gl, tal como se hace en los textos de lectura "equilibrados" de fonética (El viento norte y el
-# sol, El ratón Arturo). La huella se compara en ventanas de 1 a 2 segundos, y en ventanas tan cortas
-# ayuda que la persona ya haya dicho esos sonidos al enrolarse.
-# Cada paso pide además un tono distinto (pregunta, emoción, bajo, fuerte, rápido, lento), porque la voz
-# cambia mucho con el esfuerzo vocal y una huella grabada solo en tono normal reconoce peor esos casos.
-# La plática libre al final captura cómo habla la persona sin leer.
+# ------------------------------------------------------------------ frases para enrolar
+# Entre todas salen todos los sonidos del español (vocales, ñ, ch, ll, rr, pr, tr, bl...) y cada
+# una pide un tono distinto, porque la voz cambia mucho entre hablar normal, fuerte o bajito.
 PASOS_ENROLAMIENTO = [
     {"id": "normal", "titulo": "Lectura normal", "segundos": 30, "min_voz": 12,
      "instruccion": "Lee con tu voz de siempre, a la distancia a la que vas a hablar en la conversación.",
@@ -81,14 +70,11 @@ MISMA_PERSONA = 0.75         # tan parecido que quizá es la misma persona enrol
 
 
 # ------------------------------------------------------------------ perfiles de entorno
-# Cada lugar suena distinto: en un salón hay murmullo y eco, afuera hay ruido y las voces llegan
-# más débiles. El perfil mueve cuatro perillas:
-#   vad          qué tan seguro debe estar el detector para decir "aquí hay voz" (más alto = ignora murmullo)
-#   silencio_ms  cuánto silencio cierra una frase en vivo
-#   penal        cuánto le cuesta al Viterbi cambiar de persona (más alto = menos saltos falsos con ruido)
-#   ajuste       cuánto se baja el umbral de cada persona (más alto = la reconoce aunque el ruido
-#                ensucie su voz, pero también es más fácil confundir a alguien no registrado)
-# "Cuarto silencioso" son los valores con los que se midió la versión 2.2.
+# Cada lugar suena distinto, así que cada perfil cambia cuatro cosas:
+#   vad          qué tan seguro debe estar para decir que hay voz
+#   silencio_ms  cuánto silencio termina una frase en vivo
+#   penal        qué tanto le cuesta al Viterbi cambiar de persona
+#   ajuste       cuánto se baja el umbral de cada persona cuando hay ruido
 PERFILES = {
     "silencioso": {"nombre": "Cuarto silencioso", "detalle": "Pocas personas, sin ruido",
                    "vad": 0.50, "silencio_ms": 600, "penal": 0.20, "ajuste": 0.12},
@@ -188,7 +174,7 @@ class _Base:
     def perfil(self):
         return PERFILES[self.ajustes["perfil"]]
 
-    # quién está en la plática: se guardan los que NO están, así alguien recién enrolado aparece activo
+    # se guardan los que NO están, así alguien recién enrolado sale activo
     def presente(self, nombre):
         return nombre not in self.ajustes.get("ausentes", [])
 
@@ -667,9 +653,8 @@ class Motor(_Base):
 
     # ---------------------------------------------------------------- pasada final
     def _asr_final(self, al_avance=None):
-        """Modelo para la versión final. Sin tarjeta NVIDIA, en vivo se usa el chico (para que no se atrase),
-        pero la versión final no tiene prisa: se carga el grande en el procesador. Tarda más (más o menos lo
-        que dura el audio), pero el texto sale mucho mejor."""
+        """Modelo para la versión final. Sin NVIDIA, en vivo se usa el chico para no atrasarse,
+        pero aquí no hay prisa y se usa el grande en el procesador."""
         if self.dev_asr == "cuda" or self.modelo != "small" or not self.ajustes.get("final_grande", True):
             return self.asr
         if self.asr_grande is None:
@@ -683,8 +668,8 @@ class Motor(_Base):
         return self.asr_grande
 
     def _separador(self, siempre=False):
-        """Separador de voces encimadas (MossFormer2). Se carga la primera vez que se necesita.
-        Con siempre=True se carga aunque la opción de Ajustes esté apagada (pantalla Separar voces)."""
+        """Carga MossFormer2 la primera vez que se ocupa.
+        Con siempre=True se carga aunque esté apagado en Ajustes (lo usa Separar voces)."""
         if not sep_voces.disponible() or not (siempre or self.ajustes.get("separar_voces", True)):
             return None
         if self.separador is None:
@@ -925,8 +910,8 @@ class Motor(_Base):
 
 
 def elegir_duenos(parecidos, niveles, nombres, anonimos):
-    """Cada pista se queda con la persona que más se le parece. Si las dos salen con la misma, se la queda
-    la que se parece más y la otra busca a la siguiente. Si nadie pasa su umbral, queda como desconocida."""
+    """Cada pista se queda con la persona que más se le parece, sin repetir.
+    Si nadie pasa su umbral, queda como Desconocido."""
     P = [np.asarray(p, dtype=np.float32) - niveles for p in parecidos]
     orden = sorted(range(2), key=lambda i: -float(P[i].max()))     # primero la pista más segura
     salida, usados = [None, None], set()

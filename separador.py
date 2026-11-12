@@ -1,18 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Separación de dos voces encimadas.
+Separa dos voces encimadas.
 
-Cuando dos personas hablan al mismo tiempo, Whisper escucha una mezcla y suele escribir solo a una
-(o revuelve las dos frases). Aquí se parte ese pedazo de audio en dos "pistas", una por voz, para
-transcribir cada una por separado y ver de quién es con la huella de voz.
+Cuando dos hablan al mismo tiempo, Whisper solo escribe a uno. Aquí el pedazo se parte en dos
+pistas, una por voz, y cada una se transcribe aparte. Solo se usa donde se enciman, porque es lento.
 
-Solo se usa en los tramos donde ya se detectaron dos voces a la vez, porque es lento y en el resto
-del audio no hace falta. Con un solo micrófono la separación nunca queda perfecta: la meta es no perder
-lo que dijo la segunda persona.
-
-Modelos (se descargan con herramientas/descargar_separadores.py):
-  mossformer2   MossFormer2_SS_16K de ClearerVoice-Studio (Apache-2.0)
-  sepformer     SepFormer de SpeechBrain entrenado con ruido y eco (WHAMR!, 16 kHz)
+Modelo: MossFormer2_SS_16K de ClearerVoice-Studio (Apache-2.0); se descarga con
+herramientas/descargar_separadores.py. También funciona con SepFormer de SpeechBrain.
 """
 import os
 import types

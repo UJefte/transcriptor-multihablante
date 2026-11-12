@@ -1,16 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Opción "Traducir palabras en inglés": pasa al español las frases en inglés que dice la gente,
-pero deja como están los términos técnicos (deploy, backend, commit...) y los nombres.
+Traduce al español las frases en inglés, pero deja como están los términos técnicos
+(deploy, commit...) y los nombres.
 
-Cómo decide qué es inglés: idiomas.json trae qué tan común es cada palabra en inglés y en español
-(escala zipf, de 0 a 8). Una palabra cuenta como inglés si es bastante más común en inglés que en
-español. "is", "the", "anyway" sí; "no", "me", "real", "final" no, porque también son español.
-
-El traductor es el modelo Marian opus-mt-en-es (Helsinki-NLP). Se busca en este orden:
-  1. modelos/traductor/            versión convertida a CTranslate2 (rápida, sin internet)
-  2. Helsinki-NLP/opus-mt-en-es    con la librería transformers (se descarga la primera vez)
-Para dejar lista la opción 1 en la computadora del equipo: python herramientas\\preparar_traductor.py
+Una palabra cuenta como inglés si es mucho más común en inglés que en español (idiomas.json).
+El modelo es Marian opus-mt-en-es; se prepara con herramientas/preparar_traductor.py.
 """
 import json
 import os
