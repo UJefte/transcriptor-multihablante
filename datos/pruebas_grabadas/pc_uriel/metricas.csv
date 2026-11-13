@@ -1,0 +1,8 @@
+﻿fecha,audio,duracion_s,modo,equipo,t_quien_habla_s,t_transcribir_s,t_separar_voces_s,t_total_s,veces_lo_que_dura,encimados_revisados,encimados_separados,s_revisados,s_separados,pct_dudoso,pct_desconocido,atraso_vivo_prom_s,atraso_vivo_max_s,habla_por_persona
+2026-11-08 21:38:16,sesion_20261108_213452.wav,24.2,completo,Tarjeta NVIDIA · modelo grande,17.1,14.4,143.6,175.0,7.23,2,2,15.2,15.2,0.0,56.8,5.9,6.5,Uriel J 13.5s; Desconocido 17.7s
+2026-11-12 15:06:51,sesion_20261112_150551.wav,5.0,completo,Tarjeta NVIDIA · modelo grande,3.2,2.0,47.3,52.5,10.61,1,0,5.0,0,0.0,0.0,2.0,2.0,Uriel J 3.6s
+2026-11-12 17:15:29,sesion_20261112_170935.wav,75.5,completo,Tarjeta NVIDIA · modelo grande,44.4,38.9,190.9,274.3,3.63,10,0,21.5,0,0.0,0.0,3.7,6.2,Uriel J 22.5s; Isabel 46.8s
+2026-11-12 17:20:57,sesion_20261112_171645.wav,54.6,completo,Tarjeta NVIDIA · modelo grande,26.2,26.6,142.3,195.0,3.57,5,0,15.5,0,0.0,0.0,4.0,9.8,Uriel J 41.8s; Isabel 2.4s
+2026-11-12 17:26:16,sesion_20261112_172146.wav,48.5,completo,Tarjeta NVIDIA · modelo grande,29.2,24.8,161.6,215.6,4.44,6,2,17.8,6.1,0.0,0.0,6.2,9.0,Uriel J 26.8s; Isabel 18.8s
+2026-11-12 17:33:13,sesion_20261112_173010.wav,11.7,completo,Tarjeta NVIDIA · modelo grande,7.6,5.8,151.8,165.2,14.12,4,4,16.4,16.4,0.0,0.0,4.3,6.1,Isabel 13.6s; Uriel J 7.7s
+2026-11-12 17:50:48,sesion_20261112_174608.wav,47.5,completo,Tarjeta NVIDIA · modelo grande,29.9,27.2,173.2,230.3,4.84,2,0,18.0,0,0.0,25.0,4.3,6.2,Uriel J 16.6s; Geminis 13.9s; Desconocido 10.1s

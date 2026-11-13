@@ -21,6 +21,7 @@ import transcriptor as tr
 import evaluar as ev
 
 
+# Nivela el volumen de cada tramo con voz
 def nivelar_por_tramos(x):
     import torch
     from silero_vad import load_silero_vad, get_speech_timestamps
@@ -32,6 +33,7 @@ def nivelar_por_tramos(x):
     return y
 
 
+# Corre varias configuraciones de Whisper sobre el mismo audio y las compara
 def main():
     try:
         sys.stdout.reconfigure(errors="replace")

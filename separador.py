@@ -24,7 +24,9 @@ def disponible(modelo="mossformer2"):
                ("mossformer2_ss_16k.pt", "last_best_checkpoint", "masknet.ckpt"))
 
 
+# Separa dos voces encimadas con MossFormer2
 class Separador:
+    # Carga la red MossFormer2 y sus pesos
     def __init__(self, modelo="mossformer2", dispositivo="cpu"):
         import torch
         self.torch = torch

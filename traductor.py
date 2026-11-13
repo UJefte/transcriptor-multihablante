@@ -27,6 +27,7 @@ _modelo = None
 _candado = threading.Lock()
 
 
+# Lee idiomas.json con las palabras que se quedan en inglés
 def _cargar_lexico():
     global _lexico
     if _lexico is None:
@@ -100,6 +101,7 @@ def tramos_en_ingles(texto, vocabulario=None):
 
 # ------------------------------------------------------------------ el modelo
 class _Marian:
+    # Carga el traductor, de preferencia la versión rápida de CTranslate2
     def __init__(self):
         ct2 = os.path.join(CARPETA_MODELOS, "traductor")
         if os.path.exists(os.path.join(ct2, "model.bin")):
@@ -115,6 +117,7 @@ class _Marian:
             self.tok = MarianTokenizer.from_pretrained(MODELO_HF)
             self.modelo = MarianMTModel.from_pretrained(MODELO_HF).eval()
 
+    # Traduce una lista de frases del inglés al español
     def traducir(self, frases):
         if not frases:
             return []
@@ -142,6 +145,7 @@ def cargar():
     return _modelo
 
 
+# Dice si el traductor ya está cargado
 def disponible():
     return _modelo is not None
 
@@ -167,6 +171,7 @@ def traducir_texto(texto, vocabulario=None, traductor=None):
     return "".join(salida)
 
 
+# Ajusta mayúsculas y puntos de la traducción
 def _pulir(original, nueva):
     nueva = nueva.strip()
     if not original.rstrip().endswith(".") and nueva.endswith("."):
@@ -176,6 +181,7 @@ def _pulir(original, nueva):
     return nueva
 
 
+# Traduce solo lo que no es vocabulario técnico
 def _por_pedazos(original, fijas, traductor):
     patron = r"\b(" + "|".join(re.escape(w) for w in fijas) + r")\b"
     partes = re.split(patron, original)

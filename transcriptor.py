@@ -60,8 +60,10 @@ PROMPT_ESPANGLISH = ("Conversación en español de México entre estudiantes de 
 ESPANGLISH = {"activo": True}      # se apaga con --sin-espanglish para comparar
 
 
+# Texto de contexto para Whisper, con o sin términos en inglés
 def prompt_base():
     return PROMPT_ESPANGLISH if ESPANGLISH["activo"] else PROMPT_SIMPLE
+# Arma el filtro que quita lo de abajo de 80 Hz
 def _filtro_80hz():
     from scipy.signal import butter
     return butter(2, 80.0, "highpass", fs=SR, output="sos")
@@ -78,11 +80,13 @@ def filtro_graves(x):
 class FiltroGraves:
     """El mismo filtro pero para audio que va llegando en pedacitos (grabación en vivo)."""
 
+    # Prepara el filtro y su memoria entre pedazos
     def __init__(self):
         from scipy.signal import sosfilt_zi
         self.sos = _filtro_80hz()
         self.zi = sosfilt_zi(self.sos) * 0.0
 
+    # Filtra un pedazo nuevo sin cortes con el anterior
     def __call__(self, x):
         from scipy.signal import sosfilt
         if len(x) == 0:
@@ -127,12 +131,14 @@ tu día hasta que se acabe el tiempo. SOLO debe hablar la persona que se enrola.
 
 # ---------------------------------------------------------------- utilidades
 
+# Pasa segundos a mm:ss (o h:mm:ss)
 def hhmmss(s):
     s = int(s)
     h, m, s = s // 3600, (s % 3600) // 60, s % 60
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
+# Deja un vector con largo 1 para comparar con coseno
 def normalizar(v):
     return v / (np.linalg.norm(v) + 1e-9)
 
@@ -149,6 +155,7 @@ def nivelar_volumen(x, pico_minimo=0.1, pico_objetivo=0.3, max_ganancia=10.0):
     return np.clip(x * g, -1, 1).astype(np.float32)
 
 
+# Cambia el audio a 16 000 muestras por segundo
 def remuestrear(x, sr):
     if sr == SR:
         return x.astype(np.float32)
@@ -174,6 +181,7 @@ def cargar_audio(ruta):
         raise SystemExit(f"No pude leer '{ruta}'. Conviértelo a WAV o instala ffmpeg.")
 
 
+# Lee un archivo de texto sin líneas vacías ni comentarios
 def _lineas_utiles(ruta):
     if not os.path.exists(ruta):
         return []
@@ -219,6 +227,7 @@ def corregir(texto):
 class Decimador:
     """Pasa audio en vivo de 32/48 kHz a 16 kHz sin cortes entre bloques."""
 
+    # Prepara el filtro para bajar de 32/48 kHz a 16 kHz
     def __init__(self, sr):
         self.factor = sr // SR
         if self.factor > 1:
@@ -227,6 +236,7 @@ class Decimador:
             self.zi = np.zeros(len(self.b) - 1)
         self.fase = 0
 
+    # Baja un pedazo de audio a 16 kHz
     def __call__(self, x):
         if self.factor == 1:
             return x.astype(np.float32)
@@ -237,6 +247,7 @@ class Decimador:
         return salida.astype(np.float32)
 
 
+# Busca una frecuencia de muestreo que acepte el micrófono
 def elegir_sr(dispositivo, opciones):
     import sounddevice as sd
     for sr in opciones:
@@ -251,6 +262,7 @@ def elegir_sr(dispositivo, opciones):
 
 # ---------------------------------------------------------------- modelos
 
+# Usa la tarjeta NVIDIA si hay, si no el procesador
 def dispositivo_torch():
     import torch
     return "cuda" if torch.cuda.is_available() else "cpu"
@@ -269,6 +281,7 @@ def _preparar_cuda_windows():
                 pass
 
 
+# Revisa si Whisper puede usar una tarjeta NVIDIA
 def hay_gpu_para_whisper():
     try:
         _preparar_cuda_windows()
@@ -281,6 +294,7 @@ def hay_gpu_para_whisper():
 class Identificador:
     """Huella de voz (embedding ECAPA de SpeechBrain)."""
 
+    # Carga el modelo ECAPA de SpeechBrain
     def __init__(self, dispositivo):
         import torch
         try:
@@ -297,6 +311,7 @@ class Identificador:
         self.torch = torch
         self.dispositivo = dispositivo
 
+    # Huella de voz de un solo pedazo de audio
     def embedding(self, x):
         return self.embeddings_lote([x])[0]
 
@@ -312,6 +327,7 @@ class Identificador:
         return E / (np.linalg.norm(E, axis=1, keepdims=True) + 1e-9)
 
 
+# Carga Whisper en la tarjeta o en el procesador según lo que haya
 def cargar_whisper(nombre, dispositivo, quiet=False):
     from faster_whisper import WhisperModel
     gpu = dispositivo == "cuda" or hay_gpu_para_whisper()
@@ -340,6 +356,7 @@ def cargar_whisper(nombre, dispositivo, quiet=False):
 class DetectorVoz:
     """Detector de actividad de voz en streaming (Silero VAD)."""
 
+    # Carga Silero VAD con su umbral y la pausa que cierra una frase
     def __init__(self, umbral=0.5, silencio_ms=500):
         import torch
         from silero_vad import load_silero_vad, VADIterator
@@ -347,6 +364,7 @@ class DetectorVoz:
         self.it = VADIterator(load_silero_vad(), threshold=umbral, sampling_rate=SR,
                               min_silence_duration_ms=silencio_ms, speech_pad_ms=30)
 
+    # Dice si en este bloque empezó o terminó la voz
     def evento(self, bloque):
         r = self.it(self.torch.from_numpy(bloque))
         if not r:
@@ -356,7 +374,9 @@ class DetectorVoz:
 
 # ---------------------------------------------------------------- galería
 
+# Las personas enroladas: su huella promedio y su umbral
 class Galeria:
+    # Guarda nombres, huellas y umbrales
     def __init__(self, nombres, centroides, umbral, umbrales=None):
         self.nombres = list(nombres)
         self.centroides = np.asarray(centroides, dtype=np.float32)
@@ -365,6 +385,7 @@ class Galeria:
         # que dos voces parecidas entre sí (p. ej. mamá e hija)
         self.umbrales = None if umbrales is None else np.asarray(umbrales, dtype=np.float32)
 
+    # Lee la galería del archivo .npz
     @classmethod
     def cargar(cls, ruta=ARCHIVO_GALERIA):
         if not os.path.exists(ruta):
@@ -373,6 +394,7 @@ class Galeria:
         umbrales = d["umbrales"] if "umbrales" in d.files else None
         return cls([str(n) for n in d["nombres"]], d["centroides"], float(d["umbral"]), umbrales)
 
+    # Guarda la galería en el archivo .npz
     def guardar(self, ruta=ARCHIVO_GALERIA):
         extra = {} if self.umbrales is None else {"umbrales": self.umbrales}
         np.savez(ruta, nombres=np.array(self.nombres), centroides=self.centroides, umbral=self.umbral, **extra)
@@ -384,6 +406,7 @@ class Galeria:
             return np.full(len(self.nombres), base - AJUSTE_UMBRAL, dtype=np.float32)
         return self.umbrales - AJUSTE_PERSONA
 
+    # Parecido de una huella con cada persona, de mayor a menor
     def comparar(self, emb):
         return sorted(((float(emb @ c), n) for n, c in zip(self.nombres, self.centroides)), reverse=True)
 
@@ -404,6 +427,7 @@ def recolectar_clips(carpeta):
     return personas
 
 
+# Parte el audio en ventanas del largo y salto que se pida
 def trocear(x, largo, salto):
     n, h = int(largo * SR), int(salto * SR)
     if len(x) <= n:
@@ -411,6 +435,7 @@ def trocear(x, largo, salto):
     return [x[i:i + n] for i in range(0, len(x) - n + 1, h)]
 
 
+# Quita las ventanas con muy poco volumen
 def quitar_silencios(trozos):
     rms = np.array([np.sqrt(np.mean(t ** 2)) for t in trozos])
     ref = np.percentile(rms, 90)
@@ -474,6 +499,7 @@ def umbrales_por_persona(embs1, nombres, centroides):
     return np.array(umbrales, dtype=np.float32)
 
 
+# Calcula la huella y el umbral de cada persona con sus tomas
 def construir_galeria(ident, carpeta=CARPETA_VOCES):
     personas = recolectar_clips(carpeta)
     if not personas:
@@ -509,6 +535,7 @@ def construir_galeria(ident, carpeta=CARPETA_VOCES):
 class Segmentador:
     """Junta bloques de 32 ms en frases. Corta al detectar silencio o al llegar a max_seg."""
 
+    # Prepara el corte de frases a partir del detector de voz
     def __init__(self, vad, max_seg=6.0, min_seg=0.4, preroll=0.3):
         self.vad = vad
         self.max_m, self.min_m = int(max_seg * SR), int(min_seg * SR)
@@ -516,18 +543,21 @@ class Segmentador:
         self.hablando = False
         self.buf, self.inicio, self.n = [], 0, 0
 
+    # Junta los bloques de una frase si dura lo suficiente
     def _emitir(self, bloques, inicio):
         if not bloques:
             return None
         audio = np.concatenate(bloques)
         return (inicio / SR, audio) if len(audio) >= self.min_m else None
 
+    # Busca dónde cortar una frase larga sin partir palabras
     def _punto_de_corte(self):
         # Cortar en el bloque más silencioso del último segundo para no partir palabras
         ult = min(len(self.buf) - 1, int(SR / BLOQUE))
         rms = [np.sqrt(np.mean(b ** 2)) for b in self.buf[-ult:]]
         return len(self.buf) - ult + int(np.argmin(rms))
 
+    # Recibe un bloque y regresa las frases que ya terminaron
     def alimentar(self, b):
         salida = []
         ev = self.vad.evento(b)
@@ -551,6 +581,7 @@ class Segmentador:
         self.n += len(b)
         return [s for s in salida if s]
 
+    # Entrega la última frase al dejar de grabar
     def terminar(self):
         s = self._emitir(self.buf, self.inicio) if self.hablando else None
         self.buf, self.hablando = [], False
@@ -604,6 +635,7 @@ class Separador:
     nadie sale como Desconocido 1, Desconocido 2...
     """
 
+    # Prepara la búsqueda de quién habla con la galería y los umbrales
     def __init__(self, ident, galeria, umbral, margen=0.05, agrupar_desconocidos=True):
         self.ident, self.galeria = ident, galeria
         self.niveles = galeria.niveles(umbral)
@@ -612,6 +644,7 @@ class Separador:
         self.ultimo = None
         self.grupos = []          # desconocidos vistos: {"c": huella, "n": tramos, "nombre": ...}
 
+    # Saca las huellas de ventanas de 1 s que se enciman
     def _ventanas(self, audio, paso):
         n, L, h = len(audio), int(VENTANA_SEP * SR), int(paso * SR)
         if n <= L:
@@ -629,6 +662,7 @@ class Separador:
         ok = np.array([mascara[a:b].mean() >= 0.5 for a, b in vent])
         return ok if ok.any() else np.ones(len(vent), dtype=bool)
 
+    # Junta a un desconocido con uno ya visto o crea uno nuevo
     def _grupo_desconocido(self, e, dur):
         sims = [float(e @ g["c"]) for g in self.grupos]
         if sims and (max(sims) >= DESC_SIMILITUD or (dur < DESC_MIN_SEG and max(sims) >= 0.15)):
@@ -643,6 +677,7 @@ class Separador:
             return nombre
         return "Desconocido"
 
+    # Decide quién habla en cada tramo de la frase usando Viterbi
     def etiquetar(self, audio, t0, rapido=False):
         paso = PASO_RAPIDO if rapido else PASO_SEP
         nombres, C = self.galeria.nombres, self.galeria.centroides
@@ -739,10 +774,12 @@ FIN_ORACION = (".", "?", "!", "…")
 def unir_fragmentos(grupos, max_palabras=2, max_hueco=0.3):
     """Si una o dos palabras sueltas continúan la oración de otro ('Ni' + 'tú ni...'),
     se quedan con quien dijo el resto. Las respuestas cortas como 'Sí.' no se tocan."""
+    # Dice si el siguiente pedazo sigue la misma oración
     def continua(a, b):
         return (not a["texto"].endswith(FIN_ORACION) and b["texto"][:1].islower()
                 and b["inicio"] - a["fin"] < max_hueco)
 
+    # Junta dos pedazos en una sola línea
     def unir(a, b, nombre):
         return {"inicio": a["inicio"], "fin": b["fin"], "nombre": nombre, "texto": a["texto"] + " " + b["texto"],
                 "scores": a["scores"] + b["scores"], "solape": a["solape"] or b["solape"],
@@ -768,6 +805,7 @@ def unir_fragmentos(grupos, max_palabras=2, max_hueco=0.3):
 
 # ---------------------------------------------------------------- transcripción
 
+# Quita lo que Whisper inventó y deja las palabras con su tiempo
 def filtrar_segmentos(segmentos):
     palabras = []
     for s in segmentos:
@@ -780,6 +818,7 @@ def filtrar_segmentos(segmentos):
     return palabras
 
 
+# Palabra en minúsculas y sin acentos para comparar
 def _norm(w):
     w = unicodedata.normalize("NFD", w.lower())
     return re.sub(r"[^\w]", "", "".join(c for c in w if unicodedata.category(c) != "Mn"))
@@ -966,7 +1005,9 @@ def frases_en_ingles(asr, x, palabras, beam, vocabulario=None):
     return salida
 
 
+# Procesa cada frase en vivo: quién habla, qué dijo y lo escribe
 class Procesador:
+    # Guarda los modelos y abre el archivo de salida
     def __init__(self, ident, galeria, asr, umbral, margen, beam, contexto, ruta_txt, detalle=False,
                  vocabulario=None, agrupar_desconocidos=True):
         self.asr, self.beam = asr, beam
@@ -977,6 +1018,7 @@ class Procesador:
         self.palabras = []      # (momento, hablante, palabra) de toda la sesión, para evaluar
         self.f = open(ruta_txt, "a", encoding="utf-8") if ruta_txt else None
 
+    # Transcribe una frase con el contexto y el vocabulario
     def transcribir(self, audio):
         prompt = prompt_base()
         if self.contexto and self.ultimo_texto:
@@ -991,6 +1033,7 @@ class Procesador:
             hotwords=self.vocabulario)
         return filtrar_segmentos(segmentos)
 
+    # Une las palabras con quien las dijo y regresa las líneas
     def procesar(self, t0, audio, rapido=False):
         vs = self.separador.etiquetar(audio, t0, rapido)
         palabras = [(t0 + a, t0 + b, w) for a, b, w in self.transcribir(audio)]
@@ -1011,6 +1054,7 @@ class Procesador:
             self.palabras.extend(((a + b) / 2, g["nombre"], w) for a, b, w in g["palabras"])
         return lineas
 
+    # Cierra el archivo de salida
     def cerrar(self):
         if self.f:
             self.f.close()
@@ -1121,6 +1165,7 @@ PALABRAS_MIN_PISTA = 3     # y palabras que Whisper le debe entender
 RELACION_MIN = 0.05        # si una pista suena menos de esto contra la otra, no hay una segunda voz
 
 
+# Transcribe una de las pistas separadas
 def _texto_pista(asr, p, beam, prompt):
     segmentos, _ = asr.transcribe(nivelar_volumen(p), language="es", beam_size=beam, word_timestamps=True,
                                   vad_filter=True, condition_on_previous_text=False, initial_prompt=prompt)
@@ -1275,6 +1320,7 @@ def refinar_grupos(x, galeria, ident, asr, umbral, margen=0.05, beam=5, vocabula
 
 # ---------------------------------------------------------------- comandos
 
+# Carga galería y modelos para los comandos de consola
 def preparar(args, modelo=None):
     galeria = Galeria.cargar()
     dev = dispositivo_torch()
@@ -1288,12 +1334,14 @@ def preparar(args, modelo=None):
     return galeria, ident, asr, beam, umbral, vocab, dev_asr
 
 
+# Comando: muestra los micrófonos que hay
 def cmd_dispositivos(args):
     import sounddevice as sd
     print(sd.query_devices())
     print(f"\nMicrófono predeterminado: {sd.default.device[0]}")
 
 
+# Graba unos segundos del micrófono
 def grabar(segundos, dispositivo):
     import sounddevice as sd
     sr = elegir_sr(dispositivo, (16000, 48000, 44100, 32000))
@@ -1306,6 +1354,7 @@ def grabar(segundos, dispositivo):
     return remuestrear(audio[:, 0], sr)
 
 
+# Comando: enrola a una persona por consola
 def cmd_enrolar(args):
     import soundfile as sf
     nombre = args.nombre.strip()
@@ -1326,6 +1375,7 @@ def cmd_enrolar(args):
         cmd_galeria(args)
 
 
+# Comando: recalcula la galería
 def cmd_galeria(args):
     ident = Identificador(dispositivo_torch())
     galeria = construir_galeria(ident)
@@ -1333,12 +1383,14 @@ def cmd_galeria(args):
     print(f"Galería guardada en {ARCHIVO_GALERIA} con: {', '.join(galeria.nombres)}")
 
 
+# Nombres de los archivos .txt y .wav de una sesión nueva
 def rutas_sesion(prefijo):
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
     base = os.path.join(CARPETA_SALIDA, f"{prefijo}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
     return base + ".txt", base + ".wav"
 
 
+# Imprime cuánto tardó en salir el texto de cada frase
 def resumen_latencias(latencias):
     if latencias:
         lat = np.array(latencias)
@@ -1369,10 +1421,12 @@ def ejecutar_refinado(ruta_wav, args, galeria=None, ident=None):
     print(f"\nTranscripción final guardada en {salida}  ({time.time() - t:.0f} s)")
 
 
+# Comando: hace la versión final de un audio
 def cmd_refinar(args):
     ejecutar_refinado(args.ruta, args)
 
 
+# Comando: transcripción en vivo por consola
 def cmd_vivo(args):
     import sounddevice as sd
     import soundfile as sf
@@ -1387,11 +1441,13 @@ def cmd_vivo(args):
     latencias, avisos = [], []
     candado = threading.Lock()
 
+    # Imprime una línea sin pelearse con el medidor
     def mostrar(texto):
         with candado:
             sys.stdout.write("\r" + " " * 70 + "\r" + texto + "\n")
             sys.stdout.flush()
 
+    # Dibuja el medidor de volumen en la consola
     def medidor(rms, hablando):
         db = 20 * np.log10(rms + 1e-9)
         n = int(np.clip((db + 65) / 45 * 20, 0, 20))
@@ -1400,11 +1456,13 @@ def cmd_vivo(args):
             sys.stdout.write(f"\r  Mic [{'#' * n}{'-' * (20 - n)}] {db:4.0f} dB  {estado:<20}")
             sys.stdout.flush()
 
+    # Mete cada pedazo del micrófono a la cola
     def al_recibir(indata, frames, tiempo, estado):
         if estado:
             avisos.append(str(estado))
         q_audio.put(indata[:, 0].copy())
 
+    # Hilo que procesa las frases en orden
     def trabajador():
         while True:
             item = q_proc.get()
@@ -1493,6 +1551,7 @@ def procesar_archivo(x, galeria, ident, asr, umbral, margen, beam, contexto, rut
     return proc.palabras
 
 
+# Comando: transcribe un audio ya grabado
 def cmd_archivo(args):
     galeria, ident, asr, beam, umbral, vocab, _ = preparar(args)
     x = cargar_audio(args.ruta)
@@ -1508,6 +1567,7 @@ def cmd_archivo(args):
     print(f"Transcripción guardada en {ruta_txt}")
 
 
+# Lee los argumentos de consola y corre el comando elegido
 def main():
     try:
         sys.stdout.reconfigure(errors="replace")

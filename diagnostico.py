@@ -24,6 +24,7 @@ def _correr(comando, segundos=8):
         return ""
 
 
+# Nombre del procesador de la computadora
 def procesador():
     if os.name == "nt":
         try:
@@ -42,11 +43,13 @@ def procesador():
     return platform.processor() or "Desconocido"
 
 
+# Memoria RAM de la computadora en GB
 def memoria_gb():
     if os.name == "nt":
         try:
             import ctypes
 
+            # Estructura que pide Windows para leer la memoria
             class Estado(ctypes.Structure):
                 _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
                             ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
@@ -104,6 +107,7 @@ def openvino():
         return None
 
 
+# Versiones de Python y de las librerías instaladas
 def versiones():
     from importlib import metadata
     salida = {"Python": platform.python_version()}

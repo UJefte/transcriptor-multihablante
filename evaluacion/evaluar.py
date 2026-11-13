@@ -30,6 +30,7 @@ PATRON = re.compile(r"^\s*\[([^\]]+)\]\s*(?:\([^)]*\))?\s*:?\s*(.*)$")
 MARCA = re.compile(r"\[posible solapamiento[^\]]*\]", re.IGNORECASE)
 
 
+# Deja el texto en minúsculas, sin acentos ni signos
 def normalizar(texto):
     texto = MARCA.sub(" ", texto).lower()
     texto = unicodedata.normalize("NFD", texto)
@@ -38,6 +39,7 @@ def normalizar(texto):
     return texto.split()
 
 
+# Lee una transcripción y regresa cada palabra con su hablante
 def leer(ruta):
     palabras = []
     with open(ruta, encoding="utf-8") as f:
@@ -49,6 +51,7 @@ def leer(ruta):
     return palabras
 
 
+# Alinea dos textos palabra por palabra (distancia de edición)
 def alinear(ref, hip):
     n, m = len(ref), len(hip)
     D = [[0] * (m + 1) for _ in range(n + 1)]
@@ -75,11 +78,13 @@ def alinear(ref, hip):
     return S, B, I, aciertos
 
 
+# Cuántas veces aparece un término en el texto
 def contar(palabras, termino):
     n = len(termino)
     return sum(1 for i in range(len(palabras) - n + 1) if palabras[i:i + n] == termino)
 
 
+# Porcentaje de términos técnicos bien escritos
 def evaluar_terminos(ruta_lista, ref_palabras, hip_palabras):
     with open(ruta_lista, encoding="utf-8") as f:
         terminos = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
@@ -99,6 +104,7 @@ def evaluar_terminos(ruta_lista, ref_palabras, hip_palabras):
     return aciertos, total, fallos
 
 
+# Compara una transcripción contra su referencia y guarda el resultado
 def main():
     try:
         sys.stdout.reconfigure(errors="replace")

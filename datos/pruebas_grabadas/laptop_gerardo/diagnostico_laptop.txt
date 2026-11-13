@@ -1,0 +1,14 @@
+Transcriptor 3.0 · diagnóstico del 2026-11-12 20:37
+
+Procesador: Intel(R) Core(TM) Ultra 5 135U · 14 hilos
+Memoria: 31 GB (22 GB libres)
+Gráfica: Intel(R) Graphics
+Sistema: Windows 10 (10.0.26200)
+Tarjeta NVIDIA: No hay (o no la ve PyTorch)
+Transcribiendo con: Procesador · modelo chico (versión final con el grande)
+
+Versiones: Python 3.11.9, torch 2.14.1, speechbrain 1.1.2, faster-whisper 1.2.1, ctranslate2 4.8.3, silero-vad 6.2.3, customtkinter 6.0.0, onnxruntime 1.31.0
+Entorno elegido: Cuarto silencioso (vad 0.5, pausa 600 ms, penalización 0.2, ajuste 0.12)
+Ajustes: perfil=silencioso, traducir=False, espanglish=True, pasada_final=True, microfono=None, tema=claro, final_grande=True, separar_voces=True, modo_final=completo, ausentes=[], filtro_graves=True, velocidades={'transcribir': 2.217, 'separar': np.float64(16.645)}
+Personas enroladas y umbral: Dulce 0.21, Gera 0.18, Roman 0.16
+Micrófonos: Asignador de sonido Microsoft - Input; Varios micrófonos (2- Realtek(R

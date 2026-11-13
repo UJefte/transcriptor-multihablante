@@ -101,14 +101,17 @@ ARCHIVO_METRICAS_PERSONAS = "metricas_personas.csv"
 CANCELADO = "cancelado"
 
 
+# Error que usamos para avisar que el usuario canceló el proceso
 class Cancelado(Exception):
     pass
 
 
+# Cuántos segundos como máximo se van a separar según lo que dura el audio
 def tope_separar(duracion):
     return max(duracion * TOPE_SEPARAR, TOPE_MINIMO_S)
 
 
+# Lee los ajustes guardados y pone los de fábrica en lo que falte
 def leer_ajustes():
     ajustes = dict(AJUSTES_INICIALES)
     try:
@@ -124,6 +127,7 @@ def leer_ajustes():
     return ajustes
 
 
+# Guarda los ajustes en el archivo json
 def guardar_ajustes(ajustes):
     try:
         with open(ARCHIVO_AJUSTES, "w", encoding="utf-8") as f:
@@ -140,6 +144,7 @@ def aplicar_perfil(clave):
     return p
 
 
+# Revisa que el nombre de la persona se pueda usar como nombre de carpeta
 def nombre_valido(nombre):
     nombre = (nombre or "").strip()
     if not nombre:
@@ -153,6 +158,7 @@ def nombre_valido(nombre):
     return nombre, None
 
 
+# Pasa un volumen a decibeles
 def _db(x):
     return float(20 * np.log10(x + 1e-9))
 
@@ -161,16 +167,19 @@ class _Base:
     """Lo que comparten el motor real y el simulado."""
     pasos = PASOS_ENROLAMIENTO
 
+    # Carga los ajustes y aplica el perfil de entorno elegido
     def __init__(self):
         self.ajustes = leer_ajustes()
         aplicar_perfil(self.ajustes["perfil"])
 
+    # Cambia un ajuste, lo guarda y si es el perfil lo aplica
     def cambiar_ajuste(self, clave, valor):
         self.ajustes[clave] = valor
         guardar_ajustes(self.ajustes)
         if clave == "perfil":
             aplicar_perfil(valor)
 
+    # Regresa el perfil de entorno que está activo
     def perfil(self):
         return PERFILES[self.ajustes["perfil"]]
 
@@ -178,6 +187,7 @@ class _Base:
     def presente(self, nombre):
         return nombre not in self.ajustes.get("ausentes", [])
 
+    # Marca si una persona está o no en la plática
     def poner_presente(self, nombre, si):
         ausentes = [n for n in self.ajustes.get("ausentes", []) if n != nombre]
         if not si:
@@ -236,9 +246,11 @@ class _Base:
 
 # ====================================================================== motor real
 
+# El motor de verdad: carga los modelos y hace todo el trabajo pesado
 class Motor(_Base):
     simulado = False
 
+    # Deja todo vacío; los modelos se cargan después con cargar()
     def __init__(self):
         super().__init__()
         self.ident = self.asr = self.galeria = None
@@ -280,12 +292,14 @@ class Motor(_Base):
             self.recalcular_galeria()
         return f"Whisper '{self.modelo}' en {self.dev_asr.upper()}"
 
+    # Carga el detector de voz solo la primera vez que se necesita
     def _cargar_vad(self):
         if self._vad is None:
             from silero_vad import load_silero_vad
             self._vad = load_silero_vad()
         return self._vad
 
+    # Vuelve a leer la galería de voces del disco
     def recargar_galeria(self):
         try:
             self.galeria = tr.Galeria.cargar()
@@ -317,6 +331,7 @@ class Motor(_Base):
             raise RuntimeError(str(e))
         trozos = []
 
+        # Recibe cada pedacito del micrófono, mide el volumen y avisa si se satura
         def cb(indata, frames, tiempo, estado):
             x = indata[:, 0].copy()
             trozos.append(x)
@@ -333,11 +348,13 @@ class Motor(_Base):
         audio = np.concatenate(trozos) if trozos else np.zeros(0, np.float32)
         return tr.remuestrear(audio, sr)
 
+    # Reproduce un audio por las bocinas
     def reproducir(self, audio):
         import sounddevice as sd
         sd.stop()
         sd.play(audio, SR)
 
+    # Detiene el audio que se esté reproduciendo
     def parar_audio(self):
         import sounddevice as sd
         sd.stop()
@@ -365,6 +382,7 @@ class Motor(_Base):
                     info["snr_db"] = info["voz_db"] - info["ruido_db"]
         return self.calificar(info, paso)
 
+    # Saca las huellas de voz de un audio en ventanas, sin los silencios
     def _huellas(self, audio):
         trozos = tr.trocear(audio, tr.VENTANA_ID, tr.VENTANA_ID / 2)
         trozos = [t for t in tr.quitar_silencios(trozos) if len(t) == int(tr.VENTANA_ID * SR)]
@@ -424,6 +442,7 @@ class Motor(_Base):
             sf.write(os.path.join(carpeta, f"{sello}_{pid}.wav"), audio, SR)
         return self.recalcular_galeria()
 
+    # Vuelve a armar la galería con las voces que hay en la carpeta
     def recalcular_galeria(self):
         if not tr.recolectar_clips(tr.CARPETA_VOCES):
             if os.path.exists(tr.ARCHIVO_GALERIA):
@@ -438,6 +457,7 @@ class Motor(_Base):
         self.galeria = galeria
         return galeria
 
+    # Borra a una persona enrolada y recalcula la galería
     def borrar_persona(self, nombre):
         carpeta = os.path.join(tr.CARPETA_VOCES, nombre)
         if os.path.isdir(carpeta):
@@ -508,6 +528,7 @@ class Motor(_Base):
         if self.ajustes.get("traducir"):
             traductor.cargar()
 
+    # Traduce el inglés del texto si el usuario lo activó
     def _traducir(self, texto):
         if not self.ajustes.get("traducir") or not texto:
             return texto
@@ -538,6 +559,7 @@ class Motor(_Base):
         seg = tr.Segmentador(tr.DetectorVoz(p["vad"], p["silencio_ms"]), max_seg=8.0)
         q_audio = queue.Queue()
 
+        # Cada pedazo del micrófono se mete a la cola para procesarlo
         def al_recibir(indata, frames, tiempo, estado):
             q_audio.put(indata[:, 0].copy())
 
@@ -557,6 +579,7 @@ class Motor(_Base):
         s["hilo_cap"].start()
         return ruta_wav
 
+    # Hilo que lee el micrófono, guarda el audio y corta las frases
     def _capturar(self, s):
         pendiente = np.zeros(0, np.float32)
         ultimo, nivel_max, avisado = 0.0, 0.0, False
@@ -582,6 +605,7 @@ class Motor(_Base):
                 for t0, audio in s["seg"].alimentar(bloque):
                     s["q_proc"].put((t0, audio))
 
+    # Decide quién habló en una frase, la transcribe y manda las líneas a la app
     def _procesar_frase(self, s, t0, audio, rapido):
         proc = s["proc"]
         if proc.separador:
@@ -598,6 +622,7 @@ class Motor(_Base):
                            "texto": texto, "solape": g["solape"]})
         return salida
 
+    # Hilo que va sacando frases de la cola y las procesa
     def _trabajador(self, s):
         while True:
             item = s["q_proc"].get()
@@ -648,6 +673,7 @@ class Motor(_Base):
                                "lineas": s["lineas"]}
         return s["ruta_wav"]
 
+    # Dice si hay una conversación grabándose
     def en_curso(self):
         return self._sesion is not None
 
@@ -683,6 +709,7 @@ class Motor(_Base):
                 return None
         return self.separador
 
+    # Pide que se detenga la versión final
     def cancelar(self):
         self._cancelar.set()
 
@@ -696,6 +723,7 @@ class Motor(_Base):
         self._cancelar.clear()
         tiempos, marca = {}, [None, time.time()]
 
+        # Avisa a la app el avance, mide el tiempo de cada etapa y revisa si cancelaron
         def avance(etapa, fraccion):
             if self._cancelar.is_set():
                 raise Cancelado(CANCELADO)
@@ -750,6 +778,7 @@ class Motor(_Base):
         if s and s["ruta"] == ruta:
             self._guardar_metricas(ruta, s["duracion"], "rapido", s["lineas"], 0.0, 0.0, 0.0, {}, 0.0)
 
+    # Agrega una fila con los tiempos y datos de la grabación a metricas.csv
     def _guardar_metricas(self, ruta, duracion, modo, lineas, t_quien, t_texto, t_enc, stats, dudoso):
         habla = {}
         for l in lineas:
@@ -793,6 +822,7 @@ class Motor(_Base):
         clips = tr.recolectar_clips(tr.CARPETA_VOCES)
         niv = dict(zip(g.nombres, (float(v) for v in g.niveles())))
 
+        # Saca las huellas de un audio con ventanas del largo que se pida
         def huellas(ruta, largo):
             x = tr.cargar_audio(ruta)
             trozos = [t for t in tr.quitar_silencios(tr.trocear(x, largo, largo / 2)) if len(t) == int(largo * SR)]
@@ -926,6 +956,7 @@ def elegir_duenos(parecidos, niveles, nombres, anonimos):
     return salida
 
 
+# Arma la línea de texto [Nombre] (inicio - fin): texto
 def formatear(linea):
     marca = " [posible solapamiento con otro hablante]" if linea.get("solape") else ""
     return f"[{linea['nombre']}] ({tr.hhmmss(linea['inicio'])} - {tr.hhmmss(linea['fin'])}): {linea['texto']}{marca}"
@@ -949,6 +980,7 @@ class MotorSimulado(_Base):
     """Misma interfaz que Motor, sin modelos ni micrófono. Para diseñar la interfaz en cualquier PC."""
     simulado = True
 
+    # Motor de prueba con personas inventadas, para probar la interfaz sin modelos
     def __init__(self):
         super().__init__()
         self._personas = {"Uriel": 128.0, "Alejandro": 121.0, "Gerardo": 96.0}
@@ -957,15 +989,18 @@ class MotorSimulado(_Base):
         self.galeria = True
         self._cancelar = threading.Event()
 
+    # Finge que carga los modelos
     def cargar(self, al_progreso=lambda texto: None):
         for paso in ("Cargando la huella de voz...", "Cargando el detector de voz...", "Cargando Whisper..."):
             al_progreso(paso)
             time.sleep(0.4)
         return "Motor simulado (sin modelos)"
 
+    # Regresa micrófonos de mentira
     def microfonos(self):
         return [(0, "Micrófono simulado"), (1, "Otro micrófono simulado")], 0
 
+    # Finge que graba una toma y va mandando el volumen
     def grabar_toma(self, segundos, dispositivo=None, al_nivel=None, detener=None, al_saturar=None):
         inicio, partes = time.time(), []
         while time.time() - inicio < segundos and not (detener and detener.is_set()):
@@ -976,12 +1011,15 @@ class MotorSimulado(_Base):
             time.sleep(0.05)
         return np.concatenate(partes) if partes else np.zeros(0, np.float32)
 
+    # En el simulado no se reproduce nada
     def reproducir(self, audio):
         pass
 
+    # En el simulado no hay audio que parar
     def parar_audio(self):
         pass
 
+    # Finge que separa dos voces
     def separar_audio(self, x, al_avance=lambda texto, avance: None):
         for texto, avance in (("Cargando el separador de voces", 0.1), ("Separando las dos voces (es la parte tardada)", 0.4),
                               ("Transcribiendo la pista 1", 0.8), ("Transcribiendo la pista 2", 0.9)):
@@ -996,6 +1034,7 @@ class MotorSimulado(_Base):
                 "texto_mezcla": "Yo tengo que entregar el proyecto el viernes.",
                 "cargar": 0.5, "separar": 1.0, "transcribir": 1.0, "equipo": "simulado"}
 
+    # Regresa datos inventados de una toma
     def analizar_toma(self, audio, paso):
         dur = len(audio) / SR
         voz = dur * random.uniform(0.6, 0.9)
@@ -1003,6 +1042,7 @@ class MotorSimulado(_Base):
                 "ruido_db": -55.0, "snr_db": 33.0}
         return self.calificar(info, paso)
 
+    # Regresa una revisión inventada de las tomas
     def revisar_tomas(self, nombre, tomas):
         time.sleep(0.8)
         consistencia = {pid: random.uniform(0.62, 0.85) for pid in tomas}
@@ -1011,30 +1051,37 @@ class MotorSimulado(_Base):
         return {"consistencia": consistencia, "parecidos": parecidos, "avisos": [], "ok": True,
                 "ventanas": 60, "segundos_voz": sum(len(a) for a in tomas.values()) / SR}
 
+    # Agrega la persona a la lista de prueba
     def guardar_enrolamiento(self, nombre, tomas, reemplazar=True):
         time.sleep(1.0)
         self._personas[nombre] = sum(len(a) for a in tomas.values()) / SR
         return True
 
+    # En el simulado no hay galería que recalcular
     def recalcular_galeria(self):
         return True
 
+    # Quita a la persona de la lista de prueba
     def borrar_persona(self, nombre):
         self._personas.pop(nombre, None)
         return True
 
+    # Lista de personas inventadas
     def personas(self):
         return [{"nombre": n, "tomas": 9, "segundos": s, "en_galeria": True} for n, s in self._personas.items()]
 
+    # Dice a quién se parece una voz con números al azar
     def identificar(self, audio):
         nombres = list(self._personas) or ["Nadie"]
         sims = sorted(((random.uniform(0.1, 0.35), n) for n in nombres), reverse=True)
         sims[0] = (random.uniform(0.6, 0.8), sims[0][1])
         return sorted(sims, reverse=True), self.umbrales()
 
+    # Umbrales inventados para cada persona
     def umbrales(self):
         return {n: 0.30 + 0.03 * i for i, n in enumerate(self._personas)}
 
+    # Tabla de parecidos inventada
     def parecidos(self):
         nombres = list(self._personas)
         rng = np.random.RandomState(len(nombres))
@@ -1043,14 +1090,17 @@ class MotorSimulado(_Base):
         np.fill_diagonal(M, 1.0)
         return nombres, M
 
+    # Finge que prepara el traductor
     def preparar_traductor(self):
         time.sleep(0.3)
 
+    # Empieza una conversación de prueba que lee un guion
     def iniciar(self, dispositivo, al_evento, espanglish=True):
         if self._sesion:
             raise RuntimeError("Ya hay una conversación en curso.")
         parar = threading.Event()
 
+        # Va mandando las frases del guion como si alguien hablara
         def correr():
             t = 0.0
             for i, (nombre, texto) in enumerate(_GUION):
@@ -1072,6 +1122,7 @@ class MotorSimulado(_Base):
         self._sesion[1].start()
         return "simulado.wav"
 
+    # Detiene la conversación de prueba
     def detener(self, descartar=False):
         if not self._sesion:
             return None
@@ -1081,25 +1132,31 @@ class MotorSimulado(_Base):
         hilo.join()
         return "simulado.wav"
 
+    # Dice si la conversación de prueba sigue
     def en_curso(self):
         return self._sesion is not None
 
+    # Pide que se detenga la versión final de prueba
     def cancelar(self):
         self._cancelar.set()
 
+    # En el simulado no se guardan métricas
     def registrar_rapido(self, ruta):
         pass
 
+    # Finge la prueba de micrófono
     def probar_microfono(self, dispositivo, al_nivel=None, detener=None):
         audio = self.grabar_toma(1.5, dispositivo, al_nivel, detener)
         return audio, self.analizar_toma(audio, {"min_voz": 0})
 
+    # Métricas por persona inventadas
     def metricas_personas(self, al_avance=lambda texto, avance: None):
         time.sleep(0.5)
         return [{"nombre": n, "tomas": 9, "umbral": 0.20 + i / 50, "bajo": 0.38, "tipico": 0.52, "alto": 0.66,
                  "mas_parecido": "Uriel" if n != "Uriel" else "Gerardo", "parecido": 0.31,
                  "aciertos_1s": 92.4, "aciertos_3s": 98.5} for i, n in enumerate(self._personas)]
 
+    # Finge la versión final con su barra de avance
     def pasada_final(self, ruta_audio, al_avance=None, espanglish=True, modo=None):
         self._cancelar.clear()
         for i in range(20):

@@ -76,6 +76,7 @@ COLORES_PERSONA = [("#2A78D6", "#E3EEFB"), ("#E07B24", "#FBEBDD"), ("#149487", "
 COLOR_DESCONOCIDO = ("#8A8983", "#EDEDEA")
 
 
+# Elige la primera fuente bonita que tenga la computadora
 def familia():
     disponibles = set(tkfont.families())
     for f in ("Segoe UI", "Inter", "SF Pro Text", "Helvetica Neue", "Ubuntu", "DejaVu Sans"):
@@ -84,6 +85,7 @@ def familia():
     return "TkDefaultFont"
 
 
+# Pasa segundos a mm:ss para el reloj
 def mmss(seg):
     seg = int(max(seg, 0))
     return f"{seg // 60:02d}:{seg % 60:02d}"
@@ -100,12 +102,15 @@ def _icono(nombre, color, tam=18):
     d = ImageDraw.Draw(im)
     w = int(1.8 * k)
 
+    # Escala un punto de la cuadrícula de 24 al tamaño del ícono
     def P(x, y):
         return (x / 24 * s, y / 24 * s)
 
+    # Dibuja una línea del ícono
     def linea(*pts):
         d.line([P(*p) for p in pts], fill=color, width=w, joint="curve")
 
+    # Dibuja un círculo del ícono, relleno o solo el borde
     def circulo(cx, cy, r, relleno=False):
         a, b = P(cx - r, cy - r), P(cx + r, cy + r)
         if relleno:
@@ -184,6 +189,7 @@ def _icono(nombre, color, tam=18):
 class Medidor(tk.Canvas):
     """Barritas de nivel del micrófono, como en la propuesta."""
 
+    # Barritas que muestran el volumen del micrófono
     def __init__(self, padre, barras=12, alto=34, ancho_barra=4, separacion=3, fondo=None):
         ancho = barras * (ancho_barra + separacion)
         super().__init__(padre, width=ancho, height=alto, bg=fondo or C["tarjeta"], highlightthickness=0, bd=0)
@@ -195,16 +201,19 @@ class Medidor(tk.Canvas):
             self.ids.append(self.create_rectangle(x, alto / 2 - 2, x + ancho_barra, alto / 2 + 2,
                                                   fill=C["barra"], width=0))
 
+    # Deja todas las barritas en cero
     def reiniciar(self):
         self.niveles = [0.0] * self.n
         self._dibujar(False)
 
+    # Agrega un nivel nuevo y recorre las barritas
     def poner(self, rms, hablando=False):
         db = 20 * np.log10(rms + 1e-9)
         v = float(np.clip((db + 60) / 45, 0, 1))
         self.niveles = self.niveles[1:] + [v]
         self._dibujar(hablando or v > 0.25)
 
+    # Pinta las barritas con su altura y color
     def _dibujar(self, activo):
         for i, (rid, v) in enumerate(zip(self.ids, self.niveles)):
             h = max(4, v * self.alto)
@@ -227,7 +236,9 @@ def _forma(clave, ancho, alto, dibujar):
     return _FORMAS[clave]
 
 
+# Imagen de un círculo de color, con un punto o un cuadro adentro si se pide
 def img_circulo(tam, color, figura=None):
+    # Dibuja el círculo y la figura del centro
     def dibujar(d, k):
         s = tam * k
         d.ellipse([0, 0, s - 1, s - 1], fill=color)
@@ -241,9 +252,11 @@ def img_circulo(tam, color, figura=None):
     return _forma(("circulo", tam, color, figura), tam, tam, dibujar)
 
 
+# Imagen del interruptor prendido o apagado
 def img_interruptor(encendido, activo=True):
     fondo = (C["acento"] if activo else "#AFC6EE") if encendido else ("#C9C8C2" if activo else "#E2E1DC")
 
+    # Dibuja el fondo redondo y la bolita
     def dibujar(d, k):
         w, h = 46 * k, 26 * k
         d.rounded_rectangle([0, 0, w - 1, h - 1], radius=h / 2, fill=fondo)
@@ -256,6 +269,7 @@ def img_interruptor(encendido, activo=True):
 class OpcionPerfil(ctk.CTkFrame):
     """Tarjeta para elegir el entorno: ícono, nombre y descripción, todo alineado a la izquierda."""
 
+    # Tarjeta para elegir un entorno o un modo, con ícono y descripción
     def __init__(self, padre, titulo, detalle, icono, F, comando):
         super().__init__(padre, corner_radius=12, border_width=1, fg_color=C["tarjeta"], border_color=C["borde"],
                          cursor="hand2")
@@ -276,10 +290,12 @@ class OpcionPerfil(ctk.CTkFrame):
             if w is not self:
                 w.configure(cursor="hand2")
 
+    # Cambia el color cuando el mouse pasa encima
     def _encima(self, si):
         self.encima = si
         self.pintar(self.elegida)
 
+    # Pinta la tarjeta como elegida o no
     def pintar(self, elegida):
         self.elegida = elegida
         if elegida:
@@ -295,6 +311,7 @@ class OpcionPerfil(ctk.CTkFrame):
 class BotonRedondo(ctk.CTkLabel):
     """Botón circular rojo de grabar/detener."""
 
+    # Botón rojo redondo de grabar y detener
     def __init__(self, padre, tam, comando):
         super().__init__(padre, text="", width=tam, height=tam, fg_color="transparent", cursor="hand2")
         self.tam, self.comando, self.activo, self.modo, self.encima = tam, comando, True, "grabar", False
@@ -303,10 +320,12 @@ class BotonRedondo(ctk.CTkLabel):
         self.bind("<Button-1>", lambda e: self.activo and self.comando())
         self._dibujar()
 
+    # Cambia el tono cuando el mouse pasa encima
     def _encima(self, si):
         self.encima = si
         self._dibujar()
 
+    # Dibuja el botón con punto (grabar) o cuadro (detener)
     def _dibujar(self):
         if not self.activo:
             color = "#EDB3AD"
@@ -315,6 +334,7 @@ class BotonRedondo(ctk.CTkLabel):
         figura = "punto" if self.modo == "grabar" else "cuadro"
         self.configure(image=img_circulo(self.tam, color, figura), cursor="hand2" if self.activo else "arrow")
 
+    # Cambia el modo del botón o si se puede usar
     def poner(self, modo=None, activo=None):
         if modo is not None:
             self.modo = modo
@@ -326,6 +346,7 @@ class BotonRedondo(ctk.CTkLabel):
 class Interruptor(ctk.CTkLabel):
     """Interruptor de encendido/apagado con buen contraste sobre fondo blanco."""
 
+    # Interruptor de encendido/apagado hecho con imágenes
     def __init__(self, padre, variable, comando=None):
         super().__init__(padre, text="", width=46, height=26, fg_color="transparent", cursor="hand2")
         self.var, self.comando, self.activo = variable, comando, True
@@ -333,6 +354,7 @@ class Interruptor(ctk.CTkLabel):
         variable.trace_add("write", lambda *a: self._dibujar())
         self._dibujar()
 
+    # Al dar clic cambia el valor y avisa
     def _clic(self, e=None):
         if not self.activo:
             return
@@ -340,9 +362,11 @@ class Interruptor(ctk.CTkLabel):
         if self.comando:
             self.comando()
 
+    # Pone la imagen que va con el valor actual
     def _dibujar(self):
         self.configure(image=img_interruptor(bool(self.var.get()), self.activo))
 
+    # Permite o bloquea el interruptor
     def habilitar(self, si):
         self.activo = bool(si)
         self.configure(cursor="hand2" if si else "arrow")
@@ -371,6 +395,7 @@ def ajustar_texto(etiqueta, contenedor, margen=40, maximo=None):
     Con un ancho fijo se salía cuando Windows tiene la escala en 125 % o 150 %."""
     estado = {"pendiente": None, "ancho": None}
 
+    # Ajusta el ancho del texto al espacio que hay
     def aplicar():
         estado["pendiente"] = None
         try:
@@ -386,6 +411,7 @@ def ajustar_texto(etiqueta, contenedor, margen=40, maximo=None):
         except tk.TclError:
             pass
 
+    # Espera a que dejen de cambiar el tamaño para ajustar una sola vez
     def cambio(e=None):
         # mientras se arrastra la orilla de la ventana llegan muchos eventos; solo se aplica el último
         try:
@@ -399,6 +425,7 @@ def ajustar_texto(etiqueta, contenedor, margen=40, maximo=None):
     return etiqueta
 
 
+# Cuadro blanco con orilla redonda que usamos en todas las pantallas
 def tarjeta(padre, **kw):
     opciones = dict(fg_color=C["tarjeta"], corner_radius=16, border_width=1, border_color=C["borde"])
     opciones.update(kw)
@@ -408,6 +435,7 @@ def tarjeta(padre, **kw):
 class Avatar(ctk.CTkLabel):
     """Círculo con la inicial de la persona."""
 
+    # Círculo de color con la inicial de la persona
     def __init__(self, padre, nombre, colores, tam=36):
         inicial = "?" if nombre.startswith("Desconocido") else nombre[:1].upper()
         super().__init__(padre, text=inicial, image=img_circulo(tam, colores[1]), compound="center", width=tam,
@@ -415,12 +443,15 @@ class Avatar(ctk.CTkLabel):
                          font=ctk.CTkFont(familia(), int(tam * 0.38), "bold"))
 
 
+# Puntito de color para estados
 class Punto(ctk.CTkLabel):
+    # Crea el puntito del tamaño y color pedidos
     def __init__(self, padre, color, tam=8):
         super().__init__(padre, text="", image=img_circulo(tam, color), width=tam, height=tam,
                          fg_color="transparent")
         self.tam = tam
 
+    # Cambia el color del puntito
     def color(self, color):
         self.configure(image=img_circulo(self.tam, color))
 
@@ -428,6 +459,7 @@ class Punto(ctk.CTkLabel):
 class Onda(tk.Canvas):
     """Dibujo del audio con una rayita que avanza mientras suena."""
 
+    # Dibujo de la forma de onda de un audio
     def __init__(self, padre, color, alto=52):
         self.escala = ctk.ScalingTracker.get_widget_scaling(padre)
         super().__init__(padre, height=int(alto * self.escala), bg=C["tarjeta"], highlightthickness=0, bd=0)
@@ -446,6 +478,7 @@ class Onda(tk.Canvas):
         self.dibujado = None
         self._dibujar()
 
+    # Pinta las barras de la onda y lo que ya se escuchó
     def _dibujar(self):
         ancho, alto = self.winfo_width(), self.winfo_height()
         if ancho < 10 or (ancho, alto, id(self.picos)) == self.dibujado:
@@ -480,7 +513,9 @@ class Onda(tk.Canvas):
 
 # ====================================================================== aplicación
 
+# La ventana principal: menú de la izquierda y las páginas
 class App(ctk.CTk):
+    # Arma la ventana, las fuentes, el menú y las páginas, y empieza a cargar los modelos
     def __init__(self, motor):
         ctk.set_appearance_mode("light")
         super().__init__(fg_color=C["fondo"])
@@ -553,6 +588,7 @@ class App(ctk.CTk):
         self.mostrar("conversacion")
         self.en_hilo(self._cargar_todo, self._modelos_listos, self._modelos_error)
 
+    # Carga los modelos en otro hilo y avisa cuando están listos
     def _cargar_todo(self):
         texto = self.motor.cargar(lambda t: self.post(self.estado_modelos, t, "cargando"))
         if self.motor.ajustes.get("traducir"):
@@ -569,6 +605,7 @@ class App(ctk.CTk):
         """Ejecuta funcion(*args, **kwargs) en el hilo de la interfaz."""
         self.q.put((lambda: funcion(*args, **kwargs), ()))
 
+    # Revisa la cola de mensajes de los hilos y los aplica en la ventana
     def _bombear(self):
         # de a poquito, para que la ventana no se trabe
         limite = time.perf_counter() + 0.03
@@ -583,7 +620,9 @@ class App(ctk.CTk):
             pass
         self.after(40, self._bombear)
 
+    # Corre un trabajo tardado en otro hilo para que la ventana no se congele
     def en_hilo(self, trabajo, al_terminar=None, al_error=None):
+        # Hace el trabajo y regresa el resultado o el error a la ventana
         def correr():
             try:
                 r = trabajo()
@@ -595,6 +634,7 @@ class App(ctk.CTk):
                 self.post(al_terminar, r)
         threading.Thread(target=correr, daemon=True).start()
 
+    # Muestra un mensaje de error
     def error(self, msg):
         messagebox.showerror("Transcriptor", msg, parent=self)
 
@@ -644,6 +684,7 @@ class App(ctk.CTk):
                                        anchor="w", justify="left", wraplength=160)
         self.lbl_equipo.pack(side="left", fill="x")
 
+    # Cambia a la página elegida en el menú
     def mostrar(self, clave):
         if self.actual == "enrolar" and clave != "enrolar" and self.paginas["enrolar"].grabando:
             return
@@ -667,10 +708,12 @@ class App(ctk.CTk):
         self.paginas[clave].tkraise()
         self.paginas[clave].al_mostrar()
 
+    # Muestra abajo si los modelos están cargando, listos o con error
     def estado_modelos(self, texto, estado):
         self.lbl_equipo.configure(text=texto, font=self.F["chico"] if estado == "cargando" else self.F["negrita"])
         self.punto.color({"listo": "#2E9E62", "error": C["rojo"]}.get(estado, "#E0A800"))
 
+    # Cuando terminan de cargar, avisa a todas las páginas
     def _modelos_listos(self, descripcion):
         print("Modelos listos:", descripcion)
         self.listo = True
@@ -678,14 +721,17 @@ class App(ctk.CTk):
         for p in self.paginas.values():
             p.al_cambiar_modelos()
 
+    # Avisa que los modelos no se pudieron cargar
     def _modelos_error(self, msg):
         self.estado_modelos("No se pudieron cargar los modelos", "error")
         self.error("No se pudieron cargar los modelos:\n\n" + msg +
                    "\n\nRevisa que el entorno virtual esté activado (.venv) y que la instalación esté completa.")
 
+    # Actualiza el nombre del entorno en el menú
     def entorno_cambio(self):
         self.lbl_entorno.configure(text=self.motor.perfil()["nombre"])
 
+    # Avisa a todas las páginas que cambió la lista de personas
     def personas_cambiaron(self):
         for p in self.paginas.values():
             p.al_cambiar_personas()
@@ -698,6 +744,7 @@ class App(ctk.CTk):
             self.colores[nombre] = COLORES_PERSONA[len(self.colores) % len(COLORES_PERSONA)]
         return self.colores[nombre]
 
+    # Pregunta antes de cerrar si algo está grabando o procesando
     def cerrar(self):
         conv = self.paginas["conversacion"]
         if self.motor.en_curso() or conv.ocupado or self.paginas["separar"].ocupado:
@@ -734,22 +781,28 @@ class App(ctk.CTk):
                 return lista, i
         return lista, pred
 
+    # Regresa el micrófono que se eligió en Ajustes
     def microfono_elegido(self):
         lista, elegido = self.microfonos()
         return elegido
 
 
+# Base de todas las páginas de la app
 class Pagina(ctk.CTkFrame):
+    # Guarda la referencia a la ventana principal
     def __init__(self, padre, app):
         super().__init__(padre, fg_color=C["fondo"], corner_radius=0)
         self.app = app
 
+    # Se llama cuando se abre la página (cada página lo cambia si lo necesita)
     def al_mostrar(self):
         pass
 
+    # Se llama cuando terminan de cargar los modelos
     def al_cambiar_modelos(self):
         pass
 
+    # Se llama cuando se agrega o borra una persona
     def al_cambiar_personas(self):
         pass
 
@@ -760,6 +813,7 @@ class PaginaSeparar(Pagina):
     """Abre un audio corto con dos personas hablando a la vez y deja oír cada voz por separado."""
     MAX_SEG = 9.5       # MossFormer2 no aguanta pedazos más largos
 
+    # Arma la pantalla Separar voces: audio original, botón y las dos pistas
     def __init__(self, padre, app):
         super().__init__(padre, app)
         self.ocupado = False
@@ -853,6 +907,7 @@ class PaginaSeparar(Pagina):
         onda.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 12))
         return {"boton": boton, "onda": onda, "audio": None}
 
+    # Tarjeta de una pista separada con su dueño, onda y texto
     def _pista(self, padre, i):
         t = self._tarjeta(padre)
         t.grid(row=0, column=i, sticky="nsew", padx=(0, 7) if i == 0 else (7, 0))
@@ -872,6 +927,7 @@ class PaginaSeparar(Pagina):
         c.update(tarjeta=t, hueco=hueco, nombre=nombre, detalle=detalle, texto=texto, avatar=None)
         return c
 
+    # Pone el círculo con la inicial del dueño de la pista
     def _poner_avatar(self, p, nombre, colores):
         if p["avatar"] is not None:
             p["avatar"].destroy()
@@ -884,6 +940,7 @@ class PaginaSeparar(Pagina):
         c["boton"].configure(text="" if solo_icono else ("Detener" if sonando else "Escuchar"), width=40 if solo_icono else 112,
                              image=self.app.I["parar_chico" if sonando else "play"])
 
+    # Deja las dos pistas vacías
     def _limpiar_pistas(self):
         for i, p in enumerate(self.pistas):
             p["audio"] = None
@@ -897,6 +954,7 @@ class PaginaSeparar(Pagina):
         self.lbl_mezcla.grid_forget()
         self.lbl_tiempo.configure(text="")
 
+    # Prende o apaga los botones según lo que se pueda hacer
     def _botones(self):
         libre = not self.ocupado
         self.btn_abrir.configure(state="normal" if libre else "disabled")
@@ -904,6 +962,7 @@ class PaginaSeparar(Pagina):
         self.btn_separar.configure(state="normal" if puede else "disabled",
                                    fg_color=C["acento"] if puede else C["acento_borde"])
 
+    # Cuando hay modelos se puede separar
     def al_cambiar_modelos(self):
         self._botones()
 
@@ -916,17 +975,20 @@ class PaginaSeparar(Pagina):
         if ruta:
             self.cargar(ruta)
 
+    # Abre el audio elegido en otro hilo
     def cargar(self, ruta):
         self.parar()
         self.ocupado = True
         self._botones()
         self.app.en_hilo(lambda: mt.tr.cargar_audio(ruta), lambda x: self._cargado(x, ruta), self._fallo_abrir)
 
+    # Avisa que no se pudo abrir el audio
     def _fallo_abrir(self, msg):
         self.ocupado = False
         self._botones()
         self.app.error(f"No se pudo abrir el audio:\n\n{msg}")
 
+    # Recorta el audio a 9.5 s si hace falta y lo muestra
     def _cargado(self, x, ruta):
         self.ocupado = False
         duracion = len(x) / mt.SR
@@ -963,16 +1025,19 @@ class PaginaSeparar(Pagina):
         self.app.en_hilo(lambda: self.app.motor.separar_audio(audio, lambda t, f: self.app.post(self._avance, t, f)),
                          self._terminado, self._fallo)
 
+    # Actualiza el texto y la barra de avance
     def _avance(self, texto, fraccion):
         self.lbl_progreso.configure(text=texto + "...")
         self.barra.set(fraccion)
 
+    # Avisa que no se pudieron separar las voces
     def _fallo(self, msg):
         self.ocupado = False
         self.progreso.grid_forget()
         self._botones()
         self.app.error(f"No se pudieron separar las voces:\n\n{msg}")
 
+    # Muestra cada pista con su dueño, su parecido y su texto
     def _terminado(self, r):
         self.ocupado = False
         self.progreso.grid_forget()
@@ -1007,6 +1072,7 @@ class PaginaSeparar(Pagina):
     def _control(self, clave):
         return self.mezcla if clave == "mezcla" else self.pistas[clave]
 
+    # Reproduce el original o una pista, o la detiene si ya sonaba
     def escuchar(self, clave):
         if self.sonando == clave:
             self.parar()
@@ -1025,6 +1091,7 @@ class PaginaSeparar(Pagina):
         self._inicio = time.time()
         self._mover()
 
+    # Mueve la línea de avance sobre la onda mientras suena
     def _mover(self):
         c = self._control(self.sonando)
         fraccion = (time.time() - self._inicio) / (len(c["audio"]) / mt.SR)
@@ -1034,6 +1101,7 @@ class PaginaSeparar(Pagina):
         c["onda"].avance(fraccion)
         self._reloj = self.after(40, self._mover)
 
+    # Detiene el audio que está sonando
     def parar(self):
         if self.sonando is None:
             return
@@ -1050,12 +1118,14 @@ class PaginaSeparar(Pagina):
         c["onda"].avance(None)
 
 
+# Escribe segundos con un decimal si son pocos
 def _seg(s):
     return f"{s:.0f} s" if s >= 10 else f"{s:.1f} s"
 
 
 # ====================================================================== conversación
 
+# Duración de un archivo de audio sin cargarlo completo
 def _duracion_audio(ruta):
     try:
         import soundfile as sf
@@ -1064,13 +1134,16 @@ def _duracion_audio(ruta):
         return 60.0
 
 
+# Texto del tiempo aproximado que va a tardar
 def _texto_aprox(segundos):
     if segundos is None:
         return ""
     return f"  ·  aprox. {max(1, round(segundos / 60))} min en total" if segundos >= 60 else f"  ·  aprox. {max(1, round(segundos))} s en total"
 
 
+# Pantalla donde se graba y se ve la transcripción
 class PaginaConversacion(Pagina):
+    # Arma la cabecera con las personas, la lista de frases y los botones de abajo
     def __init__(self, padre, app):
         super().__init__(padre, app)
         self.lineas = {"vivo": [], "final": []}
@@ -1164,6 +1237,7 @@ class PaginaConversacion(Pagina):
         self._actualizar_botones()
         self._tic()
 
+    # Atajo para sacar una fuente
     def F_(self, k):
         return self.app.F[k]
 
@@ -1189,6 +1263,7 @@ class PaginaConversacion(Pagina):
         self.al_cambiar_personas()
         self.redibujar()
 
+    # Vuelve a poner los nombres de arriba para quitar o poner personas
     def al_cambiar_personas(self):
         for w in self.chips.winfo_children():
             w.destroy()
@@ -1230,6 +1305,7 @@ class PaginaConversacion(Pagina):
         self.al_cambiar_personas()
         return True
 
+    # Escribe cuántas personas están en la plática
     def _subtitulo(self):
         if not self.app.listo:
             texto = "Cargando modelos..."
@@ -1245,6 +1321,7 @@ class PaginaConversacion(Pagina):
             texto = ("Escuchando · " if self.app.motor.en_curso() else "") + quien
         self.cab.subtitulo.configure(text=texto)
 
+    # Prende o apaga los botones según el estado
     def _actualizar_botones(self):
         listo, grabando = self.app.listo, self.app.motor.en_curso()
         self.btn_grabar.poner(activo=listo and not self.ocupado)
@@ -1269,6 +1346,7 @@ class PaginaConversacion(Pagina):
             self.lbl_estado.configure(text="Listo para grabar", text_color=C["tenue"])
         self._subtitulo()
 
+    # Actualiza el reloj de la grabación
     def _tic(self):
         if self.inicio is not None:
             self.lbl_reloj.configure(text=mmss(time.time() - self.inicio))
@@ -1281,12 +1359,14 @@ class PaginaConversacion(Pagina):
         else:
             self.grabar()
 
+    # No deja grabar mientras se separan voces en la otra pestaña
     def _separando(self):
         if self.app.paginas["separar"].ocupado:
             messagebox.showinfo("Transcriptor", "Espera a que termine de separar las voces.", parent=self.app)
             return True
         return False
 
+    # Empieza a grabar o detiene la grabación
     def grabar(self):
         if self._separando():
             return
@@ -1311,6 +1391,7 @@ class PaginaConversacion(Pagina):
         self._actualizar_botones()
         self.redibujar()
 
+    # Recibe avisos del motor y los pasa a la ventana
     def _evento_motor(self, tipo, datos):
         # llega desde los hilos del motor: se pasa al hilo de la interfaz
         if tipo == "nivel":
@@ -1322,12 +1403,14 @@ class PaginaConversacion(Pagina):
         elif tipo == "atraso":
             self.app.post(self._atraso, datos)
 
+    # Mueve el medidor y los puntitos de "escuchando"
     def _nivel(self, rms, hablando):
         self.medidor.poner(rms, hablando)
         fase = int(time.time() * 3) % 3
         for i, p in enumerate(self.puntos_hablando):
             p.color(C["apagado"] if hablando and i == fase else C["barra"])
 
+    # Avisa si el texto en vivo se está atrasando
     def _atraso(self, segundos):
         if not self.app.motor.en_curso():
             return
@@ -1336,14 +1419,17 @@ class PaginaConversacion(Pagina):
         else:
             self.lbl_estado.configure(text="Grabando · " + self.app.motor.perfil()["nombre"].lower(), text_color=C["rojo"])
 
+    # Muestra un aviso del motor
     def _aviso(self, mensaje):
         self.lbl_estado.configure(text="Revisa el aviso", text_color=C["ambar"])
         messagebox.showwarning("Transcriptor", mensaje, parent=self.app)
 
+    # Detiene y hace la versión final aunque el modo sea Rápido
     def terminar_y_mejorar(self):
         self.forzar_final = True
         self.detener()
 
+    # Detiene la grabación en otro hilo
     def detener(self):
         self.ocupado = True
         self.btn_grabar.poner(activo=False)
@@ -1351,6 +1437,7 @@ class PaginaConversacion(Pagina):
         self.lbl_estado.configure(text="Terminando lo pendiente...", text_color=C["tenue"])
         self.app.en_hilo(self.app.motor.detener, self._detenido, self._fallo_detener)
 
+    # Borra la grabación actual después de preguntar
     def descartar(self):
         if not messagebox.askyesno("Descartar grabación", "Se borrará el audio y el texto de esta grabación. "
                                    "No se puede deshacer. ¿Continuar?", parent=self.app):
@@ -1362,6 +1449,7 @@ class PaginaConversacion(Pagina):
         self.lbl_estado.configure(text="Descartando...", text_color=C["tenue"])
         self.app.en_hilo(lambda: self.app.motor.detener(descartar=True), self._descartado, self._fallo_detener)
 
+    # Limpia la pantalla después de descartar
     def _descartado(self, _):
         self.lineas = {"vivo": [], "final": []}
         self.ruta_audio = None
@@ -1369,10 +1457,12 @@ class PaginaConversacion(Pagina):
         self.lbl_reloj.configure(text="00:00")
         self.lbl_estado.configure(text="Grabación descartada", text_color=C["tenue"])
 
+    # Avisa si algo falló al detener
     def _fallo_detener(self, msg):
         self._restaurar_boton()
         self.app.error(msg)
 
+    # Deja los botones como antes de grabar
     def _restaurar_boton(self):
         self.inicio = None
         self.ocupado = False
@@ -1382,6 +1472,7 @@ class PaginaConversacion(Pagina):
         self._actualizar_botones()
         self.redibujar()
 
+    # Al detener, decide si hace la versión final según el modo
     def _detenido(self, ruta):
         self._restaurar_boton()
         self.ruta_audio = ruta
@@ -1402,6 +1493,7 @@ class PaginaConversacion(Pagina):
         self._aprox = _texto_aprox(self.app.motor.estimar(_duracion_audio(ruta), "mejorado" if modo == "rapido" else modo))
         self.lbl_progreso.configure(text=f"{titulo}: preparando...{self._aprox}")
 
+        # Pasa el avance de la versión final a la barra
         def avance(etapa, fraccion):
             if "encimadas" in etapa:
                 self.app.post(self._avance, f"{titulo}: separando voces encimadas… {int(fraccion * 100)} %",
@@ -1417,17 +1509,20 @@ class PaginaConversacion(Pagina):
         self.app.en_hilo(lambda: self.app.motor.pasada_final(ruta, avance, espanglish),
                          self._final_listo, self._final_error)
 
+    # Pide cancelar la versión final
     def cancelar(self):
         self.btn_cancelar.configure(state="disabled")
         self.lbl_progreso.configure(text="Cancelando... (termina el pedazo en el que va)")
         self.app.motor.cancelar()
 
+    # Actualiza la barra de avance
     def _avance(self, texto, valor):
         if self.btn_cancelar.cget("state") == "disabled":
             return      # ya se pidió cancelar: que no se borre el aviso
         self.lbl_progreso.configure(text=texto + self._aprox)
         self.barra_prog.set(valor)
 
+    # Muestra la versión final y la guarda
     def _final_listo(self, lineas):
         self.progreso.grid_forget()
         self.ocupado = False
@@ -1443,6 +1538,7 @@ class PaginaConversacion(Pagina):
         self.lbl_estado.configure(text=f"Versión final lista{tardo}" if lineas else "No se detectó voz",
                                   text_color=C["verde"])
 
+    # Avisa si la versión final falló o se canceló
     def _final_error(self, msg):
         self.progreso.grid_forget()
         self.ocupado = False
@@ -1452,6 +1548,7 @@ class PaginaConversacion(Pagina):
             return
         self.app.error(f"No se pudo mejorar el texto:\n\n{msg}\n\nLa transcripción en vivo sigue disponible.")
 
+    # Abre un audio ya grabado para transcribirlo
     def abrir_audio(self):
         if self._separando():
             return
@@ -1484,6 +1581,7 @@ class PaginaConversacion(Pagina):
         lista.append(dict(linea))
         return False
 
+    # Agrega una frase nueva a la lista y baja si ya estaba abajo
     def agregar_linea(self, linea, cual):
         abajo = self.lista._parent_canvas.yview()[1] > 0.97
         lista = self.lineas[cual]
@@ -1499,10 +1597,12 @@ class PaginaConversacion(Pagina):
                 self._al_final()
         self._actualizar_botones()
 
+    # Ancho disponible para el texto de cada frase
     def _ancho_texto(self):
         escala = ctk.ScalingTracker.get_widget_scaling(self.hoja)
         return max(self.hoja.winfo_width() / escala - 140, 260)
 
+    # Crea la fila de una frase: avatar, nombre, tiempo y texto
     def _fila(self, l, i):
         colores = self.app.color(l["nombre"])
         f = ctk.CTkFrame(self.lista, fg_color="transparent", width=1, height=1)
@@ -1524,6 +1624,7 @@ class PaginaConversacion(Pagina):
         self._actualizar_fila(f, l)
         return f
 
+    # Cambia el texto de una fila y muestra la etiqueta de voces encimadas
     def _actualizar_fila(self, f, l):
         f.texto.configure(text=l["texto"])
         if l.get("solape"):
@@ -1531,24 +1632,29 @@ class PaginaConversacion(Pagina):
         else:
             f.etiqueta.pack_forget()
 
+    # Quita el mensaje de lista vacía
     def _quitar_vacio(self):
         self.vacio.grid_forget()
 
+    # Pone el "escuchando..." al final de la lista
     def _acomodar_escuchando(self):
         if self.app.motor.en_curso() and self.vista == "vivo":
             self.escuchando.grid(row=len(self.filas) + 1, column=0, sticky="w", padx=64, pady=(0, 14))
         else:
             self.escuchando.grid_forget()
 
+    # Baja la lista hasta el final
     def _al_final(self):
         self.update_idletasks()
         self.lista._parent_canvas.yview_moveto(1.0)
 
+    # Espera a que terminen de cambiar el tamaño de la ventana
     def _al_redimensionar(self, e=None):
         if getattr(self, "_espera_ancho", None):
             self.after_cancel(self._espera_ancho)
         self._espera_ancho = self.after(60, self._reacomodar_texto)
 
+    # Reacomoda el texto al nuevo ancho
     def _reacomodar_texto(self):
         self._espera_ancho = None
         ancho = int(self._ancho_texto())
@@ -1559,6 +1665,7 @@ class PaginaConversacion(Pagina):
             f.texto.configure(wraplength=ancho)
         self.vacio.configure(wraplength=ancho)
 
+    # Vuelve a pintar toda la lista (en vivo o final)
     def redibujar(self, arriba=False):
         for f in self.filas:
             f.destroy()
@@ -1595,6 +1702,7 @@ class PaginaConversacion(Pagina):
     def _texto_plano(self):
         return "\n".join(mt.formatear(l) for l in self.lineas[self.vista])
 
+    # Guarda la transcripción en un .txt
     def guardar(self):
         if not self.lineas[self.vista]:
             return
@@ -1609,11 +1717,13 @@ class PaginaConversacion(Pagina):
                 f.write(self._texto_plano() + "\n")
             self.lbl_estado.configure(text="Guardado", text_color=C["verde"])
 
+    # Copia la transcripción al portapapeles
     def copiar(self):
         self.app.clipboard_clear()
         self.app.clipboard_append(self._texto_plano())
         self.lbl_estado.configure(text="Copiado", text_color=C["verde"])
 
+    # Borra la transcripción de la pantalla
     def limpiar(self):
         if self.lineas[self.vista] and not messagebox.askyesno("Limpiar", "¿Borrar la transcripción de la pantalla? "
                                                                "Lo grabado sigue guardado en la carpeta de "
@@ -1628,9 +1738,11 @@ class PaginaConversacion(Pagina):
 
 # ====================================================================== personas
 
+# Pantalla de las personas enroladas
 class PaginaPersonas(Pagina):
     COLUMNAS = 3
 
+    # Arma la cabecera con el botón de enrolar y el área de tarjetas
     def __init__(self, padre, app):
         super().__init__(padre, app)
         self.grid_columnconfigure(0, weight=1)
@@ -1648,12 +1760,15 @@ class PaginaPersonas(Pagina):
         self.prueba = None
         self.al_cambiar_personas()
 
+    # Al abrir la página se actualizan las tarjetas
     def al_mostrar(self):
         self.al_cambiar_personas()
 
+    # Al cargar los modelos se actualizan las tarjetas
     def al_cambiar_modelos(self):
         self.al_cambiar_personas()
 
+    # Vuelve a pintar tarjetas, parecidos y métricas
     def al_cambiar_personas(self):
         for w in self.cuerpo.winfo_children():
             w.destroy()
@@ -1686,6 +1801,7 @@ class PaginaPersonas(Pagina):
         self._parecidos(fila + 1)
         self._metricas(fila + 2)
 
+    # Tarjeta de una persona con sus datos y botones
     def _tarjeta_persona(self, p, fila, col):
         F, I = self.app.F, self.app.I
         t = tarjeta(self.cuerpo)
@@ -1723,6 +1839,7 @@ class PaginaPersonas(Pagina):
         boton(botones, "Re-enrolar", lambda n=p["nombre"]: self.app.paginas["enrolar"].nueva(n), "secundario",
               font=F["chico"], height=40, width=60).pack(side="left", fill="x", expand=True, padx=(8, 0))
 
+    # Tabla de qué tanto se parecen las voces entre sí
     def _parecidos(self, fila):
         F = self.app.F
         nombres, M = self.app.motor.parecidos()
@@ -1769,6 +1886,7 @@ class PaginaPersonas(Pagina):
                              text_color=tinta, font=F["negrita"] if i != j else F["chico"]).grid(
                     row=i + 1, column=j + 1, padx=3, pady=3)
 
+    # Cambia si la persona está en la plática
     def _presencia(self, nombre, var):
         if not self.app.paginas["conversacion"].cambiar_presencia(nombre, bool(var.get())):
             var.set(not var.get())
@@ -1791,20 +1909,24 @@ class PaginaPersonas(Pagina):
         if getattr(self, "datos_metricas", None):
             self._pintar_metricas(self.datos_metricas)
 
+    # Calcula las métricas por persona en otro hilo
     def medir(self):
         self.btn_medir.configure(state="disabled", text="Midiendo...")
         self.app.en_hilo(self.app.motor.metricas_personas, self._medido, self._fallo_medir)
 
+    # Avisa si no se pudieron medir
     def _fallo_medir(self, msg):
         self.btn_medir.configure(state="normal", text="Medir")
         self.app.error(f"No se pudo medir:\n\n{msg}")
 
+    # Guarda y muestra las métricas
     def _medido(self, filas):
         self.datos_metricas = filas
         if self.btn_medir.winfo_exists():
             self.btn_medir.configure(state="normal", text="Medir")
             self._pintar_metricas(filas)
 
+    # Pinta la tabla de métricas por persona
     def _pintar_metricas(self, filas):
         F = self.app.F
         for w in self.tabla_metricas.winfo_children():
@@ -1823,6 +1945,7 @@ class PaginaPersonas(Pagina):
                 ctk.CTkLabel(self.tabla_metricas, text=x, font=F["negrita"] if c == 0 else F["chico"], text_color=C["texto"],
                              anchor="w").grid(row=i, column=c, sticky="w", padx=(0, 10), pady=2)
 
+    # Borra a una persona después de preguntar
     def borrar(self, nombre):
         if not messagebox.askyesno("Borrar persona", f"¿Borrar la voz de {nombre}? Tendrá que volver a enrolarse.",
                                    parent=self.app):
@@ -1847,17 +1970,20 @@ class PaginaPersonas(Pagina):
         self.barras_prueba.pack(fill="x", padx=24, pady=(0, 20))
         mic = self.app.microfono_elegido()
 
+        # Graba 5 segundos y dice a quién se parece la voz
         def trabajo():
             audio = self.app.motor.grabar_toma(5, mic, lambda r: self.app.post(medidor.poner, r, True))
             self.app.post(self.lbl_prueba.configure, text="Analizando...", text_color=C["tenue"])
             return self.app.motor.identificar(audio)
         self.app.en_hilo(trabajo, self._resultado, self._fallo)
 
+    # Avisa si falló la prueba de voz
     def _fallo(self, msg):
         if self.prueba is not None:
             self.prueba.grid_forget()
         self.app.error(msg)
 
+    # Muestra a quién se parece la voz y con qué puntaje
     def _resultado(self, r):
         sims, niveles = r
         mejor, nombre = sims[0]
@@ -1885,7 +2011,9 @@ class PaginaPersonas(Pagina):
 
 # ====================================================================== ajustes
 
+# Pantalla de ajustes
 class PaginaAjustes(Pagina):
+    # Arma las secciones: entorno, modo, micrófono, traducción y avanzado
     def __init__(self, padre, app):
         super().__init__(padre, app)
         F = app.F
@@ -2001,6 +2129,7 @@ class PaginaAjustes(Pagina):
         self._pintar_perfiles()
         self._pintar_traducir()
 
+    # Crea una tarjeta de sección con título y texto
     def _seccion(self, fila, titulo, texto):
         t = tarjeta(self.cuerpo)
         t.grid(row=fila, column=0, sticky="ew", padx=8, pady=8)
@@ -2011,6 +2140,7 @@ class PaginaAjustes(Pagina):
                 anchor="w", padx=24, pady=(4, 12))
         return t
 
+    # Arma la parte de opciones avanzadas
     def _armar_avanzado(self):
         F = self.app.F
         a = self.avanzado
@@ -2053,6 +2183,7 @@ class PaginaAjustes(Pagina):
               height=38).pack(side="left")
         ctk.CTkLabel(fila, text=f"Versión {mt.tr.VERSION}", font=F["mini"], text_color=C["tenue"]).pack(side="right")
 
+    # Al abrir la página se actualiza todo
     def al_mostrar(self):
         self._pintar_perfiles()
         self._pintar_modos()
@@ -2068,6 +2199,7 @@ class PaginaAjustes(Pagina):
                 texto += "\nUmbral de cada persona: " + ", ".join(f"{n} {u:.2f}" for n, u in umbrales.items())
             self.lbl_umbrales.configure(text=texto)
 
+    # Actualiza la lista de micrófonos y los datos del equipo
     def al_cambiar_modelos(self):
         self._datos_equipo = None
         lista, elegido = self.app.microfonos()
@@ -2077,12 +2209,15 @@ class PaginaAjustes(Pagina):
         self.combo_mic.set(actual)
         self.al_mostrar()
 
+    # Si cambian las personas se actualiza la página
     def al_cambiar_personas(self):
         self.al_mostrar()
 
+    # Guarda el micrófono elegido
     def _elegir_mic(self, nombre):
         self.app.motor.cambiar_ajuste("microfono", nombre)
 
+    # Abre o cierra las opciones avanzadas
     def _plegar(self):
         self.abierto = not self.abierto
         if self.abierto:
@@ -2091,10 +2226,12 @@ class PaginaAjustes(Pagina):
         else:
             self.avanzado.grid_forget()
 
+    # Guarda el modo elegido para el final de la grabación
     def elegir_modo(self, clave):
         self.app.motor.cambiar_ajuste("modo_final", clave)
         self._pintar_modos()
 
+    # Marca el modo elegido y escribe el tiempo estimado de cada uno
     def _pintar_modos(self):
         motor = self.app.motor
         for clave, b in self.modos.items():
@@ -2108,6 +2245,7 @@ class PaginaAjustes(Pagina):
                 extra = f"2 min de audio ≈ {max(1, round(t / 60))} min"
             b.lbl_detalle.configure(text=f"{mt.MODOS[clave]['detalle']}\n{extra}")
 
+    # Muestra los tiempos de la última grabación
     def _pintar_metricas(self):
         m = getattr(self.app.motor, "ultimas_metricas", None)
         if not m:
@@ -2123,6 +2261,7 @@ class PaginaAjustes(Pagina):
             texto += f"\nAtraso en vivo: promedio {m['atraso_vivo_prom_s']} s, máximo {m['atraso_vivo_max_s']} s"
         self.lbl_metricas.configure(text=texto)
 
+    # Prueba el micrófono 10 segundos
     def probar_mic(self):
         conv = self.app.paginas["conversacion"]
         if self.app.motor.en_curso() or conv.ocupado or self.app.paginas["separar"].ocupado:
@@ -2135,10 +2274,12 @@ class PaginaAjustes(Pagina):
         self.app.en_hilo(lambda: self.app.motor.probar_microfono(mic, lambda r: self.app.post(self.medidor_mic.poner, r, True)),
                          self._mic_listo, self._mic_error)
 
+    # Avisa si la prueba de micrófono falló
     def _mic_error(self, msg):
         self.btn_mic.configure(state="normal", text="Probar micrófono (10 s)")
         self.lbl_mic.configure(text=f"No se pudo probar el micrófono: {msg}", text_color=C["rojo"])
 
+    # Muestra el volumen y el ruido que midió la prueba
     def _mic_listo(self, r):
         _, info = r
         self.btn_mic.configure(state="normal", text="Probar micrófono (10 s)")
@@ -2150,6 +2291,7 @@ class PaginaAjustes(Pagina):
             texto += " Se oye bien."
         self.lbl_mic.configure(text=texto, text_color=C["verde"] if info["calidad"] == "buena" else C["ambar"])
 
+    # Guarda el entorno elegido
     def elegir_perfil(self, clave):
         if self.app.motor.en_curso():
             messagebox.showinfo("Ajustes", "El cambio se aplica en la siguiente grabación.", parent=self.app)
@@ -2157,16 +2299,19 @@ class PaginaAjustes(Pagina):
         self.app.entorno_cambio()
         self.al_mostrar()
 
+    # Marca el entorno elegido
     def _pintar_perfiles(self):
         actual = self.app.motor.ajustes["perfil"]
         for clave, b in self.opciones.items():
             b.pintar(clave == actual)
 
+    # Escribe si la traducción está activada
     def _pintar_traducir(self, texto=None):
         if texto is None:
             texto = "Activado" if self.var_traducir.get() else "Desactivado"
         self.lbl_traducir.configure(text=texto)
 
+    # Activa o apaga la traducción y carga el traductor si hace falta
     def _traducir(self):
         quiere = bool(self.var_traducir.get())
         self.app.motor.cambiar_ajuste("traducir", quiere)
@@ -2176,10 +2321,12 @@ class PaginaAjustes(Pagina):
         self.sw_traducir.habilitar(False)
         self._pintar_traducir("Cargando el traductor...")
 
+        # Cuando el traductor está listo se vuelve a habilitar el interruptor
         def listo(_):
             self.sw_traducir.habilitar(True)
             self._pintar_traducir()
 
+        # Si no se pudo cargar el traductor, se apaga la opción
         def fallo(msg):
             self.var_traducir.set(False)
             self.app.motor.cambiar_ajuste("traducir", False)
@@ -2196,6 +2343,7 @@ class PaginaAjustes(Pagina):
         motor = self.app.motor if self.app.listo else None
         self.app.en_hilo(lambda: diagnostico.resumen(motor), self._pintar_equipo, lambda m: None)
 
+    # Pinta la tabla con los datos de la computadora
     def _pintar_equipo(self, datos):
         self._datos_equipo = datos
         for w in self.tabla_equipo.winfo_children():
@@ -2209,9 +2357,11 @@ class PaginaAjustes(Pagina):
                        pady=(10 if i == 0 else 2, 10 if i == len(datos) - 1 else 2))
             ajustar_texto(valor, self.tabla_equipo, 190)
 
+    # Copia los datos del equipo al portapapeles
     def _copiar_datos(self):
         motor = self.app.motor if self.app.listo else None
 
+        # Pone el texto en el portapapeles y avisa
         def listo(texto):
             self.app.clipboard_clear()
             self.app.clipboard_append(texto)
@@ -2219,6 +2369,7 @@ class PaginaAjustes(Pagina):
                                 parent=self.app)
         self.app.en_hilo(lambda: diagnostico.texto_completo(motor, mt.tr.VERSION), listo)
 
+    # Crea el paquete de pruebas (.zip) sin voces
     def _paquete(self):
         sello = time.strftime("%Y%m%d_%H%M")
         ruta = filedialog.asksaveasfilename(parent=self.app, title="Guardar paquete para soporte",
@@ -2230,11 +2381,13 @@ class PaginaAjustes(Pagina):
         motor = self.app.motor if self.app.listo else None
         audio = bool(self.var_audio.get())
 
+        # Avisa dónde quedó el paquete
         def listo(r):
             messagebox.showinfo("Tu equipo", f"Listo, se guardó:\n{r}\n\nMándalo tal cual. No lleva las voces "
                                              "enroladas de nadie.", parent=self.app)
         self.app.en_hilo(lambda: diagnostico.crear_paquete(ruta, motor, mt.tr.VERSION, audio), listo)
 
+    # Abre la carpeta de las transcripciones
     def _abrir_carpeta(self):
         carpeta = os.path.join(DATOS, mt.tr.CARPETA_SALIDA)
         os.makedirs(carpeta, exist_ok=True)
@@ -2250,7 +2403,9 @@ class PaginaAjustes(Pagina):
 
 # ====================================================================== enrolamiento guiado
 
+# Pantalla del enrolamiento guiado de 10 tomas
 class PaginaEnrolar(Pagina):
+    # Arma la cabecera y el área donde van las tomas
     def __init__(self, padre, app):
         super().__init__(padre, app)
         self.pasos = app.motor.pasos
@@ -2280,9 +2435,11 @@ class PaginaEnrolar(Pagina):
         self.abajo = ctk.CTkFrame(self, fg_color="transparent", width=1, height=1)
         self.vista_inicio()
 
+    # Atajo para sacar una fuente
     def F_(self, k):
         return self.app.F[k]
 
+    # Borra lo que haya en el área para pintar otra vista
     def limpiar(self):
         for w in self.area.winfo_children() + self.abajo.winfo_children():
             w.destroy()
@@ -2300,6 +2457,7 @@ class PaginaEnrolar(Pagina):
         c.pack(fill="both", expand=True, pady=10)
         self.after(10, lambda: self.marco._parent_canvas.yview_moveto(0.0))
 
+        # Centra la tarjeta según el espacio libre
         def acomodar(e=None):
             if not c.winfo_exists():
                 return
@@ -2310,6 +2468,7 @@ class PaginaEnrolar(Pagina):
         self.after(10, acomodar)
         return c
 
+    # Regresa a Personas, preguntando si hay tomas sin guardar
     def volver(self):
         if self.grabando:
             return
@@ -2327,6 +2486,7 @@ class PaginaEnrolar(Pagina):
         self.app.mostrar("enrolar")
         self.vista_inicio(nombre)
 
+    # Primera vista: pedir el nombre y explicar el enrolamiento
     def vista_inicio(self, nombre=None):
         self.limpiar()
         self.tomas, self.info = {}, {}
@@ -2353,10 +2513,12 @@ class PaginaEnrolar(Pagina):
         self.btn_comenzar.pack(fill="x", padx=36, pady=(16, 34))
         self.btn_comenzar.configure(state="normal" if self.app.listo else "disabled")
 
+    # Cuando hay modelos se puede empezar
     def al_cambiar_modelos(self):
         if hasattr(self, "btn_comenzar") and self.btn_comenzar.winfo_exists():
             self.btn_comenzar.configure(state="normal")
 
+    # Revisa el nombre y empieza con la primera toma
     def comenzar(self):
         if not self.app.listo:
             return
@@ -2397,6 +2559,7 @@ class PaginaEnrolar(Pagina):
                               command=lambda k=i: not self.grabando and self.ir_a(k))
             b.grid(row=0, column=i, sticky="ew", padx=3)
 
+    # Muestra la toma número i con su frase e instrucciones
     def ir_a(self, i):
         self.indice = i
         p = self.pasos[i]
@@ -2450,6 +2613,7 @@ class PaginaEnrolar(Pagina):
         self.resultado.pack(fill="x", pady=(10, 0))
         self._mostrar_resultado()
 
+    # Muestra si la toma salió bien o hay que repetirla
     def _mostrar_resultado(self):
         for w in self.resultado.winfo_children():
             w.destroy()
@@ -2468,6 +2632,7 @@ class PaginaEnrolar(Pagina):
             ajustar_texto(ctk.CTkLabel(self.resultado, text=a, font=self.F_("chico"), text_color=C["suave"]),
                           self.resultado, 20, 640).pack(pady=(2, 0))
 
+    # Empieza o detiene la grabación de la toma
     def alternar_toma(self):
         if self.grabando:
             if self.detener_evt:
@@ -2475,6 +2640,7 @@ class PaginaEnrolar(Pagina):
         else:
             self.grabar_toma()
 
+    # Graba la toma en otro hilo con su reloj y medidor
     def grabar_toma(self):
         p = self.pasos[self.indice]
         self.grabando = True
@@ -2486,6 +2652,7 @@ class PaginaEnrolar(Pagina):
         self._satura_hasta = 0.0
         minimo = p["min_voz"] + 3 if p.get("libre") else 2
 
+        # Actualiza la cuenta de segundos y el aviso de saturación
         def reloj():
             if not self.grabando or not self.lbl_cuenta.winfo_exists():
                 return
@@ -2498,6 +2665,7 @@ class PaginaEnrolar(Pagina):
             self.after(200, reloj)
         reloj()
 
+        # Graba el audio y lo revisa
         def trabajo():
             audio = self.app.motor.grabar_toma(p["segundos"], self.mic_id,
                                                lambda r: self.app.post(self.medidor.poner, r, True),
@@ -2506,20 +2674,24 @@ class PaginaEnrolar(Pagina):
             return audio, self.app.motor.analizar_toma(audio, p)
         self.app.en_hilo(trabajo, lambda r: self._toma_lista(p["id"], *r), self._toma_error)
 
+    # Deja el aviso de saturación 2 segundos
     def _marcar_saturado(self):
         self._satura_hasta = time.time() + 2.0      # el aviso se queda 2 s para alcanzar a leerlo
 
+    # Deja los botones como antes de grabar
     def _fin_grabacion(self):
         self.grabando = False
         self.btn_volver.configure(state="normal")
         if self.btn_toma.winfo_exists():
             self.btn_toma.poner(modo="grabar", activo=True)
 
+    # Avisa si no se pudo grabar
     def _toma_error(self, msg):
         self._fin_grabacion()
         self._mostrar_resultado()
         self.app.error(f"No se pudo grabar:\n\n{msg}")
 
+    # Guarda la toma y muestra su resultado
     def _toma_lista(self, pid, audio, info):
         self._fin_grabacion()
         self.tomas[pid], self.info[pid] = audio, info
@@ -2531,6 +2703,7 @@ class PaginaEnrolar(Pagina):
                                   text_color=C["suave"])
         self.ir_a(self.indice)
 
+    # Reproduce la toma grabada
     def escuchar(self):
         pid = self.pasos[self.indice]["id"]
         if pid in self.tomas:
@@ -2539,6 +2712,7 @@ class PaginaEnrolar(Pagina):
             except Exception as e:
                 self.app.error(f"No se pudo reproducir: {e}")
 
+    # Pasa a la siguiente toma o a la revisión final
     def siguiente(self):
         pendientes = [i for i in range(self.indice + 1, len(self.pasos)) if self.pasos[i]["id"] not in self.info]
         faltan = [i for i, p in enumerate(self.pasos) if p["id"] not in self.info]
@@ -2564,11 +2738,13 @@ class PaginaEnrolar(Pagina):
         self.app.en_hilo(lambda: self.app.motor.revisar_tomas(self.nombre, self.tomas), self._revision_lista,
                          self._revision_error)
 
+    # Avisa si no se pudo revisar
     def _revision_error(self, msg):
         self.btn_volver.configure(state="normal")
         self.lbl_rev.configure(text="No se pudo revisar.", text_color=C["rojo"])
         self.app.error(msg)
 
+    # Muestra la revisión de las 10 tomas
     def _revision_lista(self, rep):
         self.reporte = rep
         self.btn_volver.configure(state="normal")
@@ -2610,6 +2786,7 @@ class PaginaEnrolar(Pagina):
                                  "secundario" if hay_problemas else "principal", font=self.F_("boton"), height=48)
         self.btn_guardar.pack(fill="x", padx=34, pady=(24, 30))
 
+    # Guarda la huella de voz
     def guardar(self, con_problemas):
         if con_problemas and not messagebox.askyesno(
                 "Enrolar", "Hay tomas con problemas y el reconocimiento puede fallar. ¿Guardar de todos modos?",
@@ -2623,11 +2800,13 @@ class PaginaEnrolar(Pagina):
         self.app.en_hilo(lambda: self.app.motor.guardar_enrolamiento(self.nombre, buenas), self._guardado,
                          self._guardado_error)
 
+    # Avisa si no se pudo guardar
     def _guardado_error(self, msg):
         self.btn_volver.configure(state="normal")
         self.btn_guardar.configure(state="normal", text="Guardar huella de voz")
         self.app.error(msg)
 
+    # Al guardar, actualiza todo y regresa a Personas
     def _guardado(self, _):
         self.btn_volver.configure(state="normal")
         self.app.personas_cambiaron()
@@ -2663,6 +2842,7 @@ def usar_entorno_virtual():
             sys.exit(subprocess.call([py, os.path.abspath(__file__)] + sys.argv[1:]))
 
 
+# Arranca la app: revisa el entorno, la escala de Windows y abre la ventana
 def main():
     import multiprocessing
     multiprocessing.freeze_support()

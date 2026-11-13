@@ -12,6 +12,7 @@ import numpy as np
 import sounddevice as sd
 
 
+# Mide volumen y pico de una grabación y dice si está bien
 def nivel(x):
     x = np.asarray(x, dtype=np.float32).ravel()
     if not len(x):
@@ -22,12 +23,14 @@ def nivel(x):
     return f"{db:5.0f} dB, pico {pico:.3f} -> {estado}", pico
 
 
+# Graba con sd.rec
 def grabar_rec(dev, sr, seg):
     x = sd.rec(int(seg * sr), samplerate=sr, channels=1, dtype="float32", device=dev)
     sd.wait()
     return x
 
 
+# Graba con un stream, igual que la app
 def grabar_stream(dev, sr, seg):
     buf = []
     with sd.InputStream(device=dev, samplerate=sr, channels=1, dtype="float32", blocksize=int(sr * 0.05),
@@ -36,6 +39,7 @@ def grabar_stream(dev, sr, seg):
     return np.concatenate(buf) if buf else np.zeros(0)
 
 
+# Prueba los micrófonos y muestra el volumen de cada uno
 def main():
     apis = sd.query_hostapis()
     if "--todos" in sys.argv:

@@ -1,0 +1,3 @@
+﻿fecha,audio,duracion_s,modo,equipo,t_quien_habla_s,t_transcribir_s,t_separar_voces_s,t_total_s,veces_lo_que_dura,encimados_revisados,encimados_separados,s_revisados,s_separados,pct_dudoso,pct_desconocido,atraso_vivo_prom_s,atraso_vivo_max_s,habla_por_persona
+2026-11-12 19:49:04,sesion_20261112_194339.wav,15.3,completo,Procesador · modelo chico (versión final con el grande),11.9,22.5,256.9,291.3,19.04,2,2,15.3,15.3,0.0,0.0,8.5,9.7,Dulce 14.0s; Gera 14.1s
+2026-11-12 20:25:35,sesion_20261112_201927.wav,15.7,completo,Procesador · modelo chico (versión final con el grande),12.8,21.4,279.7,313.9,20.06,3,1,17.0,6.7,0.0,27.6,25.5,37.7,Roman 7.6s; Dulce 4.2s; Desconocido 4.5s
